@@ -16,6 +16,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       theme: ThemeData(
         fontFamily: 'ChauPhilomeneOne',
+        scaffoldBackgroundColor: Colors.white,
       ),
       home: supabase.auth.currentUser == null
           ? RegisterScreen()
