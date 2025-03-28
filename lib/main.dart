@@ -1,12 +1,12 @@
+import 'package:chillroom/screens/login_screen.dart';
+import 'package:chillroom/screens/register_screen.dart';
+import 'package:chillroom/supabase_client.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase/supabase.dart';
 
-void main() async {
-  await Supabase.initialize(
-    url: 'https://bybzlijicrlrkbqajkus.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5YnpsaWppY3JscmticWFqa3VzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI0MDA2MjksImV4cCI6MjA1Nzk3NjYyOX0.QrsWPMU3G8OCwK4ck-UlbnLgDn9G00Gcxm-Y69X2OF4',
-  );
 
+main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initSupabase();
   runApp(MyApp());
 }
 
@@ -14,13 +14,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: MyHomePage(),
+      home: supabase.auth.currentUser == null
+          ? RegisterScreen()
+          : MyHomePage(),
     );
   }
+
 }
 
 class MyHomePage extends StatelessWidget {
