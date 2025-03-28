@@ -34,7 +34,8 @@ class RegisterScreen extends StatelessWidget{
             ElevatedButton(
               onPressed: () {},
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
+                backgroundColor: Color(0xFFF4B400),
+                foregroundColor: Colors.white,
                 minimumSize: Size(double.infinity, 50),
               ),
               child: Text("Registrarse", style: TextStyle(fontSize: 16)),
