@@ -57,24 +57,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
               TextFormField(
                 controller: _emailController,
                 decoration: InputDecoration(labelText: "Correo electrónico"),
-
-
+                validator: (value) => !value!.contains('@') ? "Correo no válido" : null,
+              ),
+              TextFormField(
+                controller: _passwordController,
+                decoration: InputDecoration(labelText: "Contraseña"),
+                obscureText: true,
+                validator: (value) => value!.length < 6 ? "Mínimo 6 caracteres" : null,
+              ),
+              TextFormField(
+                controller: _confirmPasswordController,
+                decoration: InputDecoration(labelText: "Confirma la contraseña"),
+                obscureText: true,
+                validator: (value) => value != _passwordController.text ? "Las contraseñas no coinciden" : null,
               ),
               Row(
                 children: [
-                  Checkbox(value: false, onChanged: (value) {}),
-                  Expanded(child: Text("He leído y estoy de acuerdo con los Términos y condiciones y la política de privacidad.")),
+                  Checkbox(
+                      value: _acceptTerms,
+                      onChanged: (value) => setState(() {
+                        _acceptTerms = value!;
+                      }),
+                  ),
+                  Text("Acepto los términos y condiciones"),
                 ],
               ),
               SizedBox(height: 12),
               ElevatedButton(
-                onPressed: () {},
+                onPressed: _isLoading ? null : _register,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Color(0xFFE3A62F),
                   foregroundColor: Colors.white,
                   minimumSize: Size(double.infinity, 50),
                 ),
-                child: Text("Registrarse", style: TextStyle(fontSize: 16)),
+                child: _isLoading ? CircularProgressIndicator(color: Colors.white) : Text("Registrarse"),
               ),
               SizedBox(height: 16),
               Row(

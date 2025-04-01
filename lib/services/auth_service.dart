@@ -3,23 +3,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AuthService {
   final supabase = Supabase.instance.client;
 
-  Future<String?> signUp(String name, String email, String password) async{
-    try{
-      final response = await supabase.auth.signUp(email: email, password: password);
+  Future<String?> signUp(String name, String email, String password) async {
+    final response = await supabase.auth.signUp(email: email, password: password);
 
-      if(response.user == null) return "No se pudo crear la cuenta";
-
-      await supabase.from('usuarios').insert({
-        'id': response.user!.id,
-        'nombre': name,
-        'correo': email,
-      });
-      return null; //Registro exitoso
-
-    } catch (e){
-      return e.toString(); //Devolver error
+    if (response.user == null) {
+      return "Error al registrar. Verifica tu información.";
     }
+
+    // Insertar el usuario en la tabla 'usuarios'
+    final insertResponse = await supabase.from('usuarios').insert({
+      'id': response.user!.id,
+      'nombre': name,
+      'email': email,
+      'rol': 'busco piso' // Puedes modificar esto según la lógica de tu app
+    });
+
+    if (insertResponse.error != null) {
+      return "Error al guardar el perfil";
+    }
+
+    return null; // Registro exitoso
   }
+
 
   //Iniciar sesión con Google
   Future<void> signInWithGoogle() async {
