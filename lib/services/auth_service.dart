@@ -30,6 +30,16 @@ class AuthService {
     }
   }
 
+  Future<String?> signInWithEmail(String email, String password) async{
+    try{
+      final response = await supabase.auth.signInWithPassword(email: email, password: password);
+      if(response.user != null) return null;
+      return "Credenciales incorrectas";
+    } catch(e){
+      return "Error al iniciar sesión";
+    }
+  }
+
   //Cerrar sesión
   Future<void> signOut() async {
     await supabase.auth.signOut();
