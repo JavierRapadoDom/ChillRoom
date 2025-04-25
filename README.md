@@ -1,16 +1,34 @@
-# chillroom
+# 🏡 ChillRoom
 
-A new Flutter project.
+**ChillRoom** es una aplicación multiplataforma desarrollada en Flutter que conecta a personas que buscan compañeros de piso de forma segura, visual y personalizada.
 
-## Getting Started
+Con ChillRoom podrás:
+- Publicar tu piso si buscas compañeros.
+- Explorar pisos disponibles con personas que ya viven en ellos.
+- Buscar perfiles compatibles según tus intereses y estilo de vida.
+- Iniciar chats con usuarios directamente, sin necesidad de match previo.
+- Guardar pisos y personas favoritas para revisarlas más tarde.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## 🚀 Tecnologías utilizadas
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- **Flutter** - Framework de UI multiplataforma.
+- **Dart** - Lenguaje de programación.
+- **Supabase** - Backend como servicio:
+  - Autenticación
+  - Base de datos (PostgreSQL)
+  - Almacenamiento de imágenes
+---
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🧪 Funcionalidades actuales
+
+✅ Registro e inicio de sesión (correo o Google)  
+✅ Creación de perfil con gustos e intereses  
+✅ Publicación de piso (si eres anfitrión)  
+✅ Exploración de pisos y personas  
+✅ Favoritos (pisos y perfiles)  
+✅ Mensajería entre usuarios  
+✅ Diseño responsivo adaptado a móviles
+
+---
