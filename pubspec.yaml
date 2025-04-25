@@ -65,6 +65,7 @@ flutter:
     - assets/botonGoogle.png
     - assets/botonApple.png
     - assets/ChauPhilomeneOne-Regular.ttf
+    - assets/mock/
 
 
   # An image asset can refer to one or more resolution-specific "variants", see

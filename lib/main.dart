@@ -1,3 +1,4 @@
+import 'package:chillroom/screens/home_screen.dart';
 import 'package:chillroom/screens/login_screen.dart';
 import 'package:chillroom/screens/register_screen.dart';
 import 'package:chillroom/supabase_client.dart';
@@ -19,7 +20,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.white,
       ),
       home: supabase.auth.currentUser == null
-          ? RegisterScreen()
+          ? HomeScreen()
           : MyHomePage(),
     );
   }
