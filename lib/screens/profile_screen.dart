@@ -8,7 +8,7 @@ class ProfileScreen extends StatelessWidget {
     "edad": 19,
     "rol": "Busco piso",
     "bio": "Soy Javier, tengo 19 años y me gusta hacer deporte.",
-    "fotoPerfil": "assets/mock/javier_avatar.jpg",
+    "fotoPerfil": "assets/mock/javier_avatar.png",
     "intereses": ["Gimnasio", "Música", "Madrugador", "Fútbol"]
   };
 
