@@ -6,23 +6,18 @@ class AuthService {
   Future<String?> signUp(String name, String email, String password) async {
     try {
       final AuthResponse response = await supabase.auth.signUp(
-        email: email,
+        email: email.trim(),
         password: password,
       );
 
       final user = response.user;
       if (user == null) return "No se pudo crear la cuenta";
 
-      // Insertar en tabla usuarios
-      final insertResponse = await supabase.from('usuarios').insert({
+      await supabase.from('usuarios').insert({
         'id': user.id,
         'nombre': name,
-        'correo': email,
+        'email': email,
       });
-
-      if (insertResponse.error != null) {
-        return "Error al guardar el perfil: ${insertResponse.error!.message}";
-      }
 
       return null; // Registro exitoso
     } catch (e) {
@@ -30,7 +25,6 @@ class AuthService {
     }
   }
 
-  // Iniciar sesión con Google
   Future<void> signInWithGoogle() async {
     try {
       await supabase.auth.signInWithOAuth(OAuthProvider.google);
@@ -39,7 +33,6 @@ class AuthService {
     }
   }
 
-  // Iniciar sesión con correo y contraseña
   Future<String?> signInWithEmail(String email, String password) async {
     try {
       final AuthResponse response = await supabase.auth.signInWithPassword(
@@ -49,16 +42,14 @@ class AuthService {
       if (response.user != null) return null;
       return "Credenciales incorrectas";
     } catch (e) {
-      return "Error al iniciar sesión";
+      return "Error al iniciar sesión: $e";
     }
   }
 
-  // Cerrar sesión
   Future<void> signOut() async {
     await supabase.auth.signOut();
   }
 
-  // Obtener usuario actual
   User? getCurrentUser() {
     return supabase.auth.currentUser;
   }

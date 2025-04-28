@@ -32,7 +32,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     if (errorMessage == null) {
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacementNamed(context, '/choose-role');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
     }
