@@ -1,5 +1,6 @@
 import 'package:chillroom/screens/entertainment_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SportsScreen extends StatefulWidget {
   const SportsScreen({super.key});
@@ -8,7 +9,7 @@ class SportsScreen extends StatefulWidget {
   State<SportsScreen> createState() => _SportsScreenState();
 }
 
-class _SportsScreenState extends State<SportsScreen>{
+class _SportsScreenState extends State<SportsScreen> {
   final List<String> sportsOptions = [
     "Fútbol",
     "Ciclismo",
@@ -22,29 +23,52 @@ class _SportsScreenState extends State<SportsScreen>{
 
   final List<String> selectedSports = [];
 
-  void _toggleSport(String sport){
+  void _toggleSport(String sport) {
     setState(() {
-      if(selectedSports.contains(sport)){
+      if (selectedSports.contains(sport)) {
         selectedSports.remove(sport);
-      } else{
+      } else {
         selectedSports.add(sport);
       }
     });
   }
 
-  void _continue(){
-    if(selectedSports.isEmpty){
+  void _continue() async {
+    if (selectedSports.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Selecciona al menos un deporte")),
       );
       return;
     }
 
-    Navigator.push(context, MaterialPageRoute(builder: (_) => EntertainmentScreen()));
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: usuario no identificado")),
+      );
+      return;
+    }
+
+    try {
+      await supabase.from('perfiles').update({
+        'deportes': selectedSports,
+      }).eq('usuario_id', user.id);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const EntertainmentScreen()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar los deportes: $e")),
+      );
+    }
   }
 
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -72,7 +96,7 @@ class _SportsScreenState extends State<SportsScreen>{
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: sportsOptions.map((sport) => _buildChip(sport)).toList(),
+              children: sportsOptions.map(_buildChip).toList(),
             ),
             const Spacer(),
             SizedBox(
@@ -97,7 +121,7 @@ class _SportsScreenState extends State<SportsScreen>{
     );
   }
 
-  Widget _buildChip(String sport){
+  Widget _buildChip(String sport) {
     final bool isSelected = selectedSports.contains(sport);
     return GestureDetector(
       onTap: () => _toggleSport(sport),
@@ -118,5 +142,4 @@ class _SportsScreenState extends State<SportsScreen>{
       ),
     );
   }
-
 }

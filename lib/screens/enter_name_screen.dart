@@ -1,5 +1,6 @@
 import 'package:chillroom/screens/choose_gender_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class EnterNameScreen extends StatefulWidget{
   const EnterNameScreen({super.key});
@@ -11,15 +12,41 @@ class EnterNameScreen extends StatefulWidget{
 class _EnterNameScreenState extends State<EnterNameScreen>{
   final TextEditingController _nameController = TextEditingController();
 
-  void _continue(){
-    if(_nameController.text.trim().isEmpty){
+  void _continue() async{
+
+    final name = _nameController.text.trim();
+
+    if(name.isEmpty){
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Por favor introduce tu nombre")),
       );
       return;
     }
 
-    Navigator.push(context, MaterialPageRoute(builder: (context) => ChooseGenderScreen()));
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if(user == null){
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: usuario no identificado")),
+      );
+      return;
+    }
+
+    try{
+      await supabase.from('usuarios').update({
+        'nombre': name,
+      }).eq('id', user.id);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ChooseGenderScreen()),
+      );
+    } catch(e){
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar el nombre: $e")),
+      );
+    }
   }
 
   @override

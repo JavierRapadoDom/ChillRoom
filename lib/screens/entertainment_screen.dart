@@ -1,14 +1,15 @@
 import 'package:chillroom/screens/upload_photos_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class EntertainmentScreen extends StatefulWidget{
+class EntertainmentScreen extends StatefulWidget {
   const EntertainmentScreen({super.key});
 
   @override
   State<EntertainmentScreen> createState() => _EntertainmentScreenState();
 }
 
-class _EntertainmentScreenState extends State<EntertainmentScreen>{
+class _EntertainmentScreenState extends State<EntertainmentScreen> {
   final List<String> entertainmentOptions = [
     "Videojuegos",
     "Series",
@@ -22,28 +23,52 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>{
 
   final List<String> selectedEntertainment = [];
 
-  void _toggleEntertainment(String item){
+  void _toggleEntertainment(String item) {
     setState(() {
-      if(selectedEntertainment.contains(item)){
+      if (selectedEntertainment.contains(item)) {
         selectedEntertainment.remove(item);
-      } else{
+      } else {
         selectedEntertainment.add(item);
       }
     });
   }
 
-  void _continue(){
-    if(selectedEntertainment.isEmpty){
+  void _continue() async {
+    if (selectedEntertainment.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Selecciona al menos una opción")),
       );
       return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => UploadPhotosScreen()));
+
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: usuario no identificado")),
+      );
+      return;
+    }
+
+    try {
+      await supabase.from('perfiles').update({
+        'entretenimiento': selectedEntertainment,
+      }).eq('usuario_id', user.id);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const UploadPhotosScreen()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar los gustos: $e")),
+      );
+    }
   }
 
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -71,7 +96,7 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>{
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: entertainmentOptions.map((item) => _buildChip(item)).toList(),
+              children: entertainmentOptions.map(_buildChip).toList(),
             ),
             const Spacer(),
             SizedBox(
@@ -95,6 +120,7 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>{
       ),
     );
   }
+
   Widget _buildChip(String item) {
     final bool isSelected = selectedEntertainment.contains(item);
     return GestureDetector(

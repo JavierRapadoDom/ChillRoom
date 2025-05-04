@@ -1,5 +1,6 @@
 import 'package:chillroom/screens/enter_name_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ChooseRoleScreen extends StatefulWidget{
   const ChooseRoleScreen ({super.key});
@@ -11,21 +12,57 @@ class ChooseRoleScreen extends StatefulWidget{
 class _ChooseRoleScreenState extends State<ChooseRoleScreen>{
   String? selectedRole;
 
+  /// Convierte el texto del botón al valor del enum en la base de datos
+  String _roleToEnum(String role) {
+    switch (role) {
+      case 'Busco compañeros de piso':
+        return 'busco_compañero';
+      case 'Busco piso':
+        return 'busco_piso';
+      case 'Solo explorando':
+      default:
+        return 'explorando';
+    }
+  }
+
+
   void _selectRole(String role){
     setState(() {
       selectedRole = role;
     });
   }
 
-  void _continue(){
+  Future<void> _continue() async {
     if(selectedRole == null){
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Por favor selecciona un rol")),
       );
       return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => EnterNameScreen()));
 
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if(user==null){
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: usuario no identificado")),
+      );
+      return;
+    }
+    final enumRol = _roleToEnum(selectedRole!);
+    try{
+      await supabase.from('usuarios').update({
+        'rol': enumRol,
+      }).eq('id', user.id);
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const EnterNameScreen()),
+      );
+    } catch(e){
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar el rol: $e")),
+      );
+    }
   }
 
   @override

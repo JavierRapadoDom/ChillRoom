@@ -3,6 +3,7 @@ import 'package:chillroom/screens/home_screen.dart';
 import 'package:chillroom/screens/login_screen.dart';
 import 'package:chillroom/screens/profile_screen.dart';
 import 'package:chillroom/screens/register_screen.dart';
+import 'package:chillroom/screens/welcome_screen.dart';
 import 'package:chillroom/supabase_client.dart';
 import 'package:flutter/material.dart';
 
@@ -23,13 +24,14 @@ class MyApp extends StatelessWidget {
         fontFamily: 'ChauPhilomeneOne',
         scaffoldBackgroundColor: Colors.white,
       ),
-      initialRoute: supabase.auth.currentUser == null ? '/register' : '/home',
+      initialRoute: supabase.auth.currentUser == null ? '/register' : '/register',
       routes: {
         '/register': (context) => RegisterScreen(),
         '/login': (context) => LoginScreen(),
         '/choose-role': (context) => const ChooseRoleScreen(),
         '/home': (context) => const HomeScreen(),
         '/profile': (context) => const ProfileScreen(),
+        '/welcome': (context) => const WelcomeScreen(),
       },
     );
   }

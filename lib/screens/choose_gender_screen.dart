@@ -1,34 +1,59 @@
 import 'package:chillroom/screens/lifestyle_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class ChooseGenderScreen extends StatefulWidget{
+class ChooseGenderScreen extends StatefulWidget {
   const ChooseGenderScreen({super.key});
 
   @override
   State<ChooseGenderScreen> createState() => _ChooseGenderScreenState();
 }
 
-class _ChooseGenderScreenState extends State<ChooseGenderScreen>{
+class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
   String? selectedGender;
 
-  void _selectGender(String gender){
+  void _selectGender(String gender) {
     setState(() {
-      selectedGender=gender;
+      selectedGender = gender;
     });
   }
 
-  void _continue(){
-    if(selectedGender == null){
+  void _continue() async {
+    if (selectedGender == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Por favor selecciona tu género")),
       );
       return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => LifestyleScreen()));
+
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: usuario no identificado")),
+      );
+      return;
+    }
+
+    try {
+      await supabase.from('usuarios').update({
+        'genero': selectedGender,
+      }).eq('id', user.id);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const LifestyleScreen()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar el género: $e")),
+      );
+    }
   }
 
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -81,7 +106,7 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen>{
     );
   }
 
-  Widget _buildOptionButton (String gender){
+  Widget _buildOptionButton(String gender) {
     final bool isSelected = selectedGender == gender;
     return GestureDetector(
       onTap: () => _selectGender(gender),
@@ -101,11 +126,9 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen>{
               fontWeight: FontWeight.bold,
               fontSize: 16,
             ),
-          )
+          ),
         ),
-
       ),
     );
   }
-
 }

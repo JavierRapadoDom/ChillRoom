@@ -1,5 +1,6 @@
 import 'package:chillroom/screens/sports_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LifestyleScreen extends StatefulWidget {
   const LifestyleScreen({super.key});
@@ -32,14 +33,38 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     });
   }
 
-  void _continue() {
+  void _continue() async {
     if (selectedLifestyles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Selecciona al menos un estilo de vida")),
       );
       return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => SportsScreen()));
+
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: usuario no identificado")),
+      );
+      return;
+    }
+
+    try {
+      await supabase.from('perfiles').update({
+        'estilo_vida': selectedLifestyles,
+      }).eq('usuario_id', user.id);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SportsScreen()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar estilos de vida: $e")),
+      );
+    }
   }
 
   @override
@@ -71,7 +96,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: lifestyleOptions.map((lifestyle) => _buildChip(lifestyle)).toList(),
+              children: lifestyleOptions.map(_buildChip).toList(),
             ),
             const Spacer(),
             SizedBox(

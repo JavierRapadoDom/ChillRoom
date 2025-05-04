@@ -1,109 +1,288 @@
 import 'package:chillroom/services/auth_service.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+
   @override
   _RegisterScreenState createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final AuthService _authService = AuthService(); //Instancia de la clase AuthService
+  final AuthService _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
   bool _acceptTerms = false;
+  bool _obscurePass = true;
+  bool _obscureConfirm = true;
   bool _isLoading = false;
 
-  void _register() async {
+  Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_acceptTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Debes aceptar los términos y condiciones")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Debes aceptar los términos y condiciones")),
+      );
       return;
     }
-    setState(() {
-      _isLoading = true;
-    });
-
-    final errorMessage = await _authService.signUp(_nameController.text.trim(), _emailController.text.trim(), _passwordController.text.trim());
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (errorMessage == null) {
+    setState(() => _isLoading = true);
+    final err = await _authService.signUp(
+      _nameCtrl.text.trim(),
+      _emailCtrl.text.trim(),
+      _passCtrl.text.trim(),
+    );
+    setState(() => _isLoading = false);
+    if (err == null) {
       Navigator.pushReplacementNamed(context, '/choose-role');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final primary = const Color(0xFFE3A62F);
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           child: Column(
             children: [
-              // Spacer(),
-              // Image.asset('assets/logoRegistroLogin.png'),
-              TextFormField(
-                controller: _nameController,
-                decoration: InputDecoration(labelText: "Nombre"),
-                validator: (value) => value!.isEmpty ? "Introduce tu nombre" : null,
+              // Logo ChillRoom (más grande)
+              Image.asset('assets/logoRegistroLogin.png', height: 120),
+              const SizedBox(height: 20),
+
+              // Título
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Registro',
+                  style: TextStyle(
+                    fontFamily: 'ChauPhilomeneOne',
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              TextFormField(
-                controller: _emailController,
-                decoration: InputDecoration(labelText: "Correo electrónico"),
-                validator: (value) => !value!.contains('@') ? "Correo no válido" : null,
+              const SizedBox(height: 24),
+
+              // "Ya estás registrado? Inicia sesión"
+              Align(
+                alignment: Alignment.centerLeft,
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(color: Colors.black87, fontSize: 14),
+                    children: [
+                      const TextSpan(text: '¿Ya estás registrado? '),
+                      TextSpan(
+                        text: 'Inicia sesión',
+                        style: const TextStyle(
+                          color: Colors.blue,
+                          fontFamily: 'ChauPhilomeneOne',
+                          decoration: TextDecoration.underline,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () {
+                            Navigator.pushReplacementNamed(context, '/login');
+                          },
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              TextFormField(
-                controller: _passwordController,
-                decoration: InputDecoration(labelText: "Contraseña"),
-                obscureText: true,
-                validator: (value) => value!.length < 6 ? "Mínimo 6 caracteres" : null,
+              const SizedBox(height: 24),
+
+              // Formulario
+              Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    // Nombre
+                    TextFormField(
+                      controller: _nameCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Introduce tu nombre',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      validator: (v) => v!.isEmpty ? 'Introduce tu nombre' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Correo
+                    TextFormField(
+                      controller: _emailCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'nombre@email.com',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      validator: (v) => v!.contains('@') ? null : 'Correo no válido',
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Contraseña
+                    TextFormField(
+                      controller: _passCtrl,
+                      obscureText: _obscurePass,
+                      decoration: InputDecoration(
+                        hintText: 'Crea una contraseña',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePass ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () => setState(() => _obscurePass = !_obscurePass),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      validator: (v) => v!.length < 6 ? 'Mínimo 6 caracteres' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Confirmar contraseña
+                    TextFormField(
+                      controller: _confirmCtrl,
+                      obscureText: _obscureConfirm,
+                      decoration: InputDecoration(
+                        hintText: 'Confirma la contraseña',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscureConfirm ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      validator: (v) => v != _passCtrl.text ? 'Las contraseñas no coinciden' : null,
+                    ),
+                  ],
+                ),
               ),
-              TextFormField(
-                controller: _confirmPasswordController,
-                decoration: InputDecoration(labelText: "Confirma la contraseña"),
-                obscureText: true,
-                validator: (value) => value != _passwordController.text ? "Las contraseñas no coinciden" : null,
-              ),
+              const SizedBox(height: 12),
+
+              // Checkbox Términos y Políticas
               Row(
                 children: [
                   Checkbox(
-                      value: _acceptTerms,
-                      onChanged: (value) => setState(() {
-                        _acceptTerms = value!;
-                      }),
+                    value: _acceptTerms,
+                    onChanged: (v) => setState(() => _acceptTerms = v!),
                   ),
-                  Text("Acepto los términos y condiciones"),
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        text: 'He leído y estoy de acuerdo con los ',
+                        style: const TextStyle(color: Colors.black87),
+                        children: [
+                          TextSpan(
+                            text: 'Términos y condiciones',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontFamily: 'ChauPhilomeneOne',
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()..onTap = () {
+                              // TODO: navegar a Términos
+                            },
+                          ),
+                          const TextSpan(text: ' y la '),
+                          TextSpan(
+                            text: 'política de privacidad',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontFamily: 'ChauPhilomeneOne',
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()..onTap = () {
+                              // TODO: navegar a Privacidad
+                            },
+                          ),
+                          const TextSpan(text: '.'),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
-              SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _register,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFFE3A62F),
-                  foregroundColor: Colors.white,
-                  minimumSize: Size(double.infinity, 50),
+              const SizedBox(height: 24),
+
+              // Botón Registrarse
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _register,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                    'Registrarse',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                 ),
-                child: _isLoading ? CircularProgressIndicator(color: Colors.white) : Text("Registrarse"),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
+
+              // Continúa con…
+              const Text('O continua con'),
+              const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildSocialButton("assets/botonGoogle.png"),
-                  SizedBox(width: 12),
-                  _buildSocialButton("assets/botonApple.png"),
-                  SizedBox(width: 12),
-                  _buildSocialButton("assets/botonFacebook.png"),
+                  _socialBtn('assets/botonGoogle.png'),
+                  const SizedBox(width: 16),
+                  _socialBtn('assets/botonApple.png'),
+                  const SizedBox(width: 16),
+                  _socialBtn('assets/botonFacebook.png'),
                 ],
               ),
-              Spacer(),
+
+              const Spacer(),
             ],
           ),
         ),
@@ -111,11 +290,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildTextField(String label, {bool obscureText = false}) {
-    return TextFormField(obscureText: obscureText, decoration: InputDecoration(labelText: label, border: OutlineInputBorder()));
-  }
-
-  Widget _buildSocialButton(String asset) {
-    return GestureDetector(onTap: () {}, child: CircleAvatar(backgroundImage: AssetImage(asset), radius: 20));
+  Widget _socialBtn(String asset) {
+    return GestureDetector(
+      onTap: () {},
+      child: CircleAvatar(
+        radius: 20,
+        backgroundImage: AssetImage(asset),
+        backgroundColor: Colors.transparent,
+      ),
+    );
   }
 }
