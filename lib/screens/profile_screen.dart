@@ -42,14 +42,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .from('usuarios')
         .select('nombre, edad, rol')
         .eq('id', user.id)
-        .single() as Map<String, dynamic>;
+        .single();
 
     // Datos perfil
     final profileData = await _supabase
         .from('perfiles')
         .select('biografia, estilo_vida, deportes, entretenimiento, fotos')
         .eq('usuario_id', user.id)
-        .single() as Map<String, dynamic>;
+        .single();
 
     // Datos de su piso (si es anfitrión)
     final pisoList = await _supabase
@@ -57,7 +57,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .select('id, direccion')
         .eq('anfitrion_id', user.id);
     final piso = (pisoList as List).isNotEmpty
-        ? pisoList.first as Map<String, dynamic>
+        ? pisoList.first
         : null;
 
     // Avatar
@@ -71,7 +71,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .from('profile.photos')
           .getPublicUrl(first);
     }
-
     return {
       'nombre': userData['nombre'] as String,
       'edad': userData['edad'] as int?,
@@ -85,6 +84,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ],
       'piso': piso, // puede ser null o {id, direccion}
     };
+
   }
 
   void _onBottomNavChanged(int idx) {

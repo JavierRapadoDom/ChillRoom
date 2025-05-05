@@ -19,6 +19,15 @@ class AuthService {
         'email': email.trim(),
         'rol': 'explorando',  // o el rol por defecto que elijas
       });
+      await supabase.from('perfiles').insert({
+        'usuario_id': response.user!.id,
+        'biografia': '',
+        'estilo_vida': <String>[],
+        'deportes': <String>[],
+        'entretenimiento': <String>[],
+        'fotos': <String>[],
+        'created_at': DateTime.now().toIso8601String(),  // si tu tabla lo requiere
+      });
 
       // ────────────────↓↓↓↓↓↓ LLAMADA NUEVA ↓↓↓↓↓↓────────────────
       // 3) Asegurar fila en `perfiles` para este user.id

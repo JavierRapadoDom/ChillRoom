@@ -1,7 +1,7 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateFlatDetailsScreen extends StatefulWidget {
   final String street, province, country, postal, description;
@@ -20,49 +20,89 @@ class CreateFlatDetailsScreen extends StatefulWidget {
 }
 
 class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
-  final _formKey2 = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
   final _roomsCtrl = TextEditingController();
   final _areaCtrl = TextEditingController();
-
+  final _priceCtrl = TextEditingController();        // ← Nuevo controlador para precio
   final List<XFile> _photos = [];
   final ImagePicker _picker = ImagePicker();
+  final _supabase = Supabase.instance.client;
 
   @override
   void dispose() {
     _roomsCtrl.dispose();
     _areaCtrl.dispose();
+    _priceCtrl.dispose();                            // ← limpiar controlador
     super.dispose();
   }
 
   Future<void> _addPhoto() async {
-    // Abre selector de galería (puedes ajustar calidad/size)
-    final XFile? picked = await _picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 80,
-    );
-    if (picked != null && _photos.length < 3) {
-      setState(() {
-        _photos.add(picked);
-      });
+    try {
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 80,
+      );
+      if (picked != null && _photos.length < 3) {
+        setState(() => _photos.add(picked));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error seleccionando foto: $e')),
+      );
     }
   }
 
-  void _finish() {
-    if (_formKey2.currentState!.validate()) {
-      // TODO: aquí subes cada XFile de `_photos`
-      //   con supabase.storage.from('publicaciones_photos').upload(...)
-      // y luego guardas en la tabla publicaciones_piso todas las URLs
+  Future<void> _finish() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_photos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Añade al menos una foto")),
+      );
+      return;
+    }
 
-      Navigator.popUntil(context, (r) => r.isFirst);
+    final user = _supabase.auth.currentUser!;
+    final bucket = _supabase.storage.from('publicaciones.photos');
+
+    try {
+      // 1) Subida de fotos
+      final List<String> publicUrls = [];
+      for (var file in _photos) {
+        final storagePath =
+            '${user.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+        await bucket.upload(storagePath, File(file.path));
+        publicUrls.add(bucket.getPublicUrl(storagePath));
+      }
+
+      // 2) Insert en BD incluyendo el nuevo campo 'precio'
+      await _supabase.from('publicaciones_piso').insert({
+        'anfitrion_id': user.id,
+        'titulo': widget.street,
+        'direccion': widget.street,
+        'ciudad': widget.province,
+        'pais': widget.country,
+        'codigo_postal': widget.postal,
+        'descripcion': widget.description,
+        'numero_habitaciones': int.parse(_roomsCtrl.text.trim()),
+        'metros_cuadrados': double.parse(_areaCtrl.text.trim()),
+        'precio': double.parse(_priceCtrl.text.trim()),    // ← aquí
+        'fotos': publicUrls,
+        'companeros_id': <String>[],
+      });
+
+      Navigator.popUntil(context, (route) => route.isFirst);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al guardar el piso: $e')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     const accent = Color(0xFFE3A62F);
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -73,18 +113,11 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Form(
-          key: _formKey2,
+          key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Información del piso',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              const Text('Completa todos los campos',
-                  style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 24),
-
-              // Habitaciones / m²
+              // Nº habitaciones / m²
               Row(
                 children: [
                   Expanded(
@@ -122,23 +155,26 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
                   ),
                 ],
               ),
+
               const SizedBox(height: 24),
 
-              // Ocupantes (sin cambiar)
-              const Text('Ocupantes del piso',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              TextButton.icon(
-                onPressed: () {
-                  // aquí mantienes tu lógica de añadir ocupante
-                },
-                icon: const Icon(Icons.add, color: accent),
-                label: const Text('Añadir'),
+              // **Precio**
+              const Text('Precio (€)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              TextFormField(
+                controller: _priceCtrl,
+                decoration: const InputDecoration(
+                  hintText: 'Ej. 350',
+                  enabledBorder: UnderlineInputBorder(),
+                ),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                validator: (v) =>
+                v!.trim().isEmpty ? 'Introduce un precio' : null,
               ),
+
               const SizedBox(height: 24),
 
               // Fotos del piso
-              const Text('Fotos del piso',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Fotos del piso', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Row(
                 children: List.generate(3, (i) {
@@ -178,11 +214,9 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
                   backgroundColor: accent,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                 ),
-                child: const Text('Finalizado',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Text('Finalizado', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           ),

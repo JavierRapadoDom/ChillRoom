@@ -48,7 +48,7 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
 
       // 2) obtener URL pública
       final url = supabase.storage
-          .from('profile_photos')
+          .from('profile.photos')
           .getPublicUrl(fileName);
       uploadedUrls.add(url);
     }
