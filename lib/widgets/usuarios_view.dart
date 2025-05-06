@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../screens/chat_detail_screen.dart';
+import '../screens/user_details_screen.dart';
+import '../services/chat_service.dart';
+
 class UsuariosView extends StatefulWidget {
   const UsuariosView({super.key});
 
@@ -9,9 +13,11 @@ class UsuariosView extends StatefulWidget {
 }
 
 class _UsuariosViewState extends State<UsuariosView> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final _supabase = Supabase.instance.client;
   late Future<List<Map<String, dynamic>>> _futureUsers;
+
   int _currentIndex = 0;
+  AsyncSnapshot<List<Map<String, dynamic>>>? _futureSnapshot;
 
   @override
   void initState() {
@@ -19,84 +25,100 @@ class _UsuariosViewState extends State<UsuariosView> {
     _futureUsers = _loadUsers();
   }
 
+  /* ──────────────── DATA ──────────────── */
   Future<List<Map<String, dynamic>>> _loadUsers() async {
     final me = _supabase.auth.currentUser!;
 
-    final raw = await _supabase
+    final rows = await _supabase
         .from('usuarios')
         .select('''
-        id,
-        nombre,
-        edad,
-        perfiles!perfiles_usuario_id_fkey(
-          biografia,
-          estilo_vida,
-          deportes,
-          entretenimiento,
-          fotos
-        )
-      ''')
+          id,
+          nombre,
+          edad,
+          perfiles!perfiles_usuario_id_fkey (
+            biografia,
+            estilo_vida,
+            deportes,
+            entretenimiento,
+            fotos
+          )
+        ''')
         .neq('id', me.id);
 
-    final users = (raw as List)
+    final users = (rows as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
 
     for (final u in users) {
       final p = u['perfiles'] as Map<String, dynamic>? ?? {};
 
-      // ---------- biografía ----------
       u['biografia'] = (p['biografia'] ?? '') as String;
 
-      // ---------- intereses ----------
       u['intereses'] = <String>[
         ...List<String>.from(p['estilo_vida'] ?? []),
         ...List<String>.from(p['deportes'] ?? []),
         ...List<String>.from(p['entretenimiento'] ?? []),
       ];
 
-      // ---------- foto ----------
       final fotos = List<String>.from(p['fotos'] ?? []);
-      if (fotos.isNotEmpty) {
-        final rawPath = fotos.first;
-        u['foto'] = rawPath.startsWith('http')
-            ? rawPath
-            : _supabase.storage
-            .from('profile.photos')
-            .getPublicUrl(rawPath);
-      } else {
-        u['foto'] = null;
-      }
+      u['foto'] = fotos.isNotEmpty
+          ? (fotos.first.startsWith('http')
+          ? fotos.first
+          : _supabase.storage
+          .from('profile.photos')
+          .getPublicUrl(fotos.first))
+          : null;
     }
 
-    debugPrint('Usuarios cargados: $users');
     return users;
   }
 
+  /* ──────────────── GETTERS ─────────────── */
+  List<Map<String, dynamic>> get _users =>
+      (_futureSnapshot?.data ?? <Map<String, dynamic>>[]);
 
-
-
-
-
-
+  /* ──────────────── ACCIONES ──────────────── */
   void _descartar() {
     setState(() {
       if (_currentIndex < _users.length - 1) _currentIndex++;
     });
   }
 
-  void _contactar() {
-    final u = _users[_currentIndex];
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Has contactado con ${u['nombre']}")),
+  Future<void> _contactar() async {
+    final u            = _users[_currentIndex];
+    final partnerId    = u['id']     as String;
+    final partnerName  = u['nombre'] as String;
+
+    final chatId =
+    await ChatService.instance.getOrCreateChat(partnerId);
+
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatDetailScreen(
+          chatId : chatId,
+          partner: {
+            'id'          : partnerId,
+            'nombre'      : partnerName,
+            'foto_perfil' : u['foto'],
+          },
+        ),
+      ),
     );
   }
 
-  List<Map<String, dynamic>> get _users =>
-      (_futureSnapshot?.data ?? []);
+  void _irADetalle() {
+    final u = _users[_currentIndex];
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UserDetailsScreen(userId: u['id'] as String),
+      ),
+    );
+  }
 
-  AsyncSnapshot<List<Map<String, dynamic>>>? _futureSnapshot;
-
+  /* ──────────────── UI ──────────────── */
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -109,6 +131,7 @@ class _UsuariosViewState extends State<UsuariosView> {
         if (snap.hasError) {
           return Center(child: Text('Error: ${snap.error}'));
         }
+
         final users = snap.data!;
         if (users.isEmpty) {
           return const Center(child: Text('No hay otros usuarios disponibles.'));
@@ -120,120 +143,121 @@ class _UsuariosViewState extends State<UsuariosView> {
           child: Column(
             children: [
               const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Usuarios acordes a tus gustos',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
+              const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Usuarios acordes a tus gustos',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold))),
               const SizedBox(height: 12),
-              Expanded(
-                child: Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 5,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // ---------- Foto ----------
-                        user['foto'] != null
-                            ? Image.network(user['foto'], fit: BoxFit.cover)
-                            : Container(color: Colors.grey[300]),
 
-                        // ---------- Gradiente ----------
-                        Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withOpacity(0.75),     // más opaco
-                              ],
-                              stops: const [0.5, 1],                // baja el corte
+              /* ---------- TARJETA ---------- */
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: _irADetalle,
+                  child: Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    elevation: 5,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          user['foto'] != null
+                              ? Image.network(user['foto'], fit: BoxFit.cover)
+                              : Container(color: Colors.grey[200]),
+                          /* gradiente */
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  Colors.black.withOpacity(0.75),
+                                  Colors.transparent,
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-
-                        // ---------- Contenido inferior ----------
-                        Positioned(
-                          left: 16,
-                          right: 16,
-                          bottom: 16,                   // todo el bloque a 16 px del borde
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Nombre + edad
-                              Text(
-                                '${user['nombre']}, ${user['edad'] ?? ''}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.2,
+                          /* overlay info */
+                          Positioned(
+                            left: 16,
+                            right: 16,
+                            bottom: 20,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${user['nombre']}, ${user['edad'] ?? ''}',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold),
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-
-                              // Chips de intereses
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 6,
-                                children: (user['intereses'] as List<String>).map((i) {
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFE3A62F),
-                                      borderRadius: BorderRadius.circular(20),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: (user['intereses']
+                                  as List<String>)
+                                      .take(6)
+                                      .map(
+                                        (i) => Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFE3A62F),
+                                        borderRadius:
+                                        BorderRadius.circular(20),
+                                      ),
+                                      child: Text(i,
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12)),
                                     ),
-                                    child: Text(i,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                        )),
-                                  );
-                                }).toList(),
-                              ),
-                              const SizedBox(height: 8),
-
-                              // Biografía (máx. 2 líneas)
-                              Text(
-                                user['biografia'] as String? ?? '',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
+                                  )
+                                      .toList(),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                if ((user['biografia'] as String)
+                                    .isNotEmpty)
+                                  Text(
+                                    user['biografia'],
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-
                   ),
                 ),
               ),
+
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   FloatingActionButton(
-                    onPressed: _descartar,
-                    heroTag: 'descartar',
+                    heroTag: 'skip',
                     backgroundColor: Colors.white,
                     elevation: 4,
+                    onPressed: _descartar,
                     child: const Icon(Icons.close, color: Colors.red),
                   ),
                   FloatingActionButton(
-                    onPressed: _contactar,
-                    heroTag: 'contactar',
+                    heroTag: 'contact',
                     backgroundColor: const Color(0xFFE3A62F),
                     elevation: 4,
-                    child: const Icon(Icons.chevron_right, color: Colors.white),
+                    onPressed: _contactar,
+                    child:
+                    const Icon(Icons.chevron_right, color: Colors.white),
                   ),
                 ],
               ),

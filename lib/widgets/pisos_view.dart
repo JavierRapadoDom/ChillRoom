@@ -51,44 +51,26 @@ class _PisosViewState extends State<PisosView> {
       ''')
         .order('created_at', ascending: false);
 
-    final publicaciones = (pubsRaw as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    final publicaciones = (pubsRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
     // 2) IDs de anfitriones
-    final hostIds = publicaciones
-        .map((p) => p['anfitrion_id'] as String)
-        .toSet()
-        .toList();
+    final hostIds = publicaciones.map((p) => p['anfitrion_id'] as String).toSet().toList();
     if (hostIds.isEmpty) return publicaciones;
 
     // 3) Traer nombres de anfitriones
-    final usersRaw = await supabase
-        .from('usuarios')
-        .select('id, nombre')
-        .or(hostIds.map((id) => 'id.eq.$id').join(','));
-    final allUsers = (usersRaw as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    final usersRaw = await supabase.from('usuarios').select('id, nombre').or(hostIds.map((id) => 'id.eq.$id').join(','));
+    final allUsers = (usersRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
     // 4) Traer perfiles (fotos) de anfitriones
-    final perfRaw = await supabase
-        .from('perfiles')
-        .select('usuario_id, fotos')
-        .or(hostIds.map((id) => 'usuario_id.eq.$id').join(','));
-    final allPerfiles = (perfRaw as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    final perfRaw = await supabase.from('perfiles').select('usuario_id, fotos').or(hostIds.map((id) => 'usuario_id.eq.$id').join(','));
+    final allPerfiles = (perfRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
     // 5) Construir hostMap con avatarUrl bien resuelto
     final hostMap = <String, Map<String, dynamic>>{};
     for (final u in allUsers) {
       final id = u['id'] as String;
       // Busscamos su perfil
-      final perfil = allPerfiles.firstWhere(
-            (p) => p['usuario_id'] == id,
-        orElse: () => {'fotos': <String>[]},
-      );
+      final perfil = allPerfiles.firstWhere((p) => p['usuario_id'] == id, orElse: () => {'fotos': <String>[]});
       final fotos = List<String>.from(perfil['fotos'] ?? []);
       String? avatarUrl;
       if (fotos.isNotEmpty) {
@@ -98,10 +80,7 @@ class _PisosViewState extends State<PisosView> {
           avatarUrl = rawPath;
         } else {
           // Es solo path dentro del bucket
-          avatarUrl = supabase
-              .storage
-              .from('profile.photos')
-              .getPublicUrl(rawPath);
+          avatarUrl = supabase.storage.from('profile.photos').getPublicUrl(rawPath);
         }
       }
 
@@ -151,10 +130,7 @@ class _PisosViewState extends State<PisosView> {
             if (index == 0) {
               return const Padding(
                 padding: EdgeInsets.only(bottom: 16),
-                child: Text(
-                  'Mejores elecciones para ti',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                child: Text('Mejores elecciones para ti', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               );
             }
 
@@ -168,39 +144,25 @@ class _PisosViewState extends State<PisosView> {
             return InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PisoDetailScreen(piso: piso),
-                  ),
-                );
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PisoDetailScreen(pisoId: pisoId),
+                    ),
+                  );
               },
               child: Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 margin: const EdgeInsets.only(bottom: 16),
                 elevation: 4,
                 child: Row(
                   children: [
                     ClipRRect(
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(16),
-                        bottomLeft: Radius.circular(16),
-                      ),
-                      child: imgUrl != null
-                          ? Image.network(
-                        imgUrl,
-                        width: 100,
-                        height: 100,
-                        fit: BoxFit.cover,
-                      )
-                          : Container(
-                        width: 100,
-                        height: 100,
-                        color: Colors.grey[200],
-                        child:
-                        const Icon(Icons.image_outlined, size: 40),
-                      ),
+                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                      child:
+                          imgUrl != null
+                              ? Image.network(imgUrl, width: 100, height: 100, fit: BoxFit.cover)
+                              : Container(width: 100, height: 100, color: Colors.grey[200], child: const Icon(Icons.image_outlined, size: 40)),
                     ),
 
                     Expanded(
@@ -209,33 +171,20 @@ class _PisosViewState extends State<PisosView> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              piso['direccion'] as String,
-                              style:
-                              const TextStyle(fontWeight: FontWeight.bold),
-                            ),
+                            Text(piso['direccion'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                Text(
-                                  '${piso['precio']}€/mes',
-                                  style: const TextStyle(
-                                      color: Color(0xFFE3A62F)),
-                                ),
+                                Text('${piso['precio']}€/mes', style: const TextStyle(color: Color(0xFFE3A62F))),
                                 const SizedBox(width: 8),
-                                Text(
-                                  'Ocupación: ${piso['ocupacion']}',
-                                  style: TextStyle(
-                                      color: Colors.grey[600], fontSize: 12),
-                                ),
+                                Text('Ocupación: ${piso['ocupacion']}', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                               ],
                             ),
                             const SizedBox(height: 6),
                             Row(
                               children: [
                                 const Icon(Icons.bed_outlined, size: 16),
-                                Text(
-                                    ' ${piso['numero_habitaciones']} hab.  '),
+                                Text(' ${piso['numero_habitaciones']} hab.  '),
                                 const Icon(Icons.square_foot, size: 16),
                                 Text(' ${piso['metros_cuadrados']} m²'),
                               ],
@@ -245,16 +194,13 @@ class _PisosViewState extends State<PisosView> {
                               children: [
                                 CircleAvatar(
                                   radius: 12,
-                                  backgroundImage: (host != null &&
-                                      host['avatarUrl'] != null)
-                                      ? NetworkImage(host['avatarUrl'])
-                                      : const AssetImage(
-                                      'assets/default_avatar.png')
-                                  as ImageProvider,
+                                  backgroundImage:
+                                      (host != null && host['avatarUrl'] != null)
+                                          ? NetworkImage(host['avatarUrl'])
+                                          : const AssetImage('assets/default_avatar.png') as ImageProvider,
                                 ),
                                 const SizedBox(width: 6),
-                                Text(host?['nombre'] as String? ??
-                                    'Anfitrión'),
+                                Text(host?['nombre'] as String? ?? 'Anfitrión'),
                               ],
                             ),
                           ],
@@ -263,12 +209,7 @@ class _PisosViewState extends State<PisosView> {
                     ),
 
                     IconButton(
-                      icon: Icon(
-                        isFav
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                        color: isFav ? Colors.red : Colors.grey,
-                      ),
+                      icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : Colors.grey),
                       onPressed: () => _onTapFavorite(pisoId),
                     ),
                   ],

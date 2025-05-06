@@ -1,15 +1,18 @@
-import 'package:chillroom/screens/choose_role_screen.dart';
-import 'package:chillroom/screens/home_screen.dart';
-import 'package:chillroom/screens/login_screen.dart';
-import 'package:chillroom/screens/profile_screen.dart';
-import 'package:chillroom/screens/register_screen.dart';
-import 'package:chillroom/screens/welcome_screen.dart';
-import 'package:chillroom/supabase_client.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'supabase_client.dart';
+import 'screens/choose_role_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/profile_screen.dart';
+import 'screens/register_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'screens/piso_details_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initSupabase();
+  await initSupabase();                        // tu helper
   runApp(const MyApp());
 }
 
@@ -18,20 +21,41 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /*  inicialRoute debe calcularse **después** de que supersase esté
+        inicializado; usamos el getter de la instancia ya creada.        */
+    final initial =
+    Supabase.instance.client.auth.currentUser == null ? '/register' : '/home';
+
     return MaterialApp(
-      debugShowCheckedModeBanner: false, // Opcional para quitar el banner de debug
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         fontFamily: 'ChauPhilomeneOne',
         scaffoldBackgroundColor: Colors.white,
       ),
-      initialRoute: supabase.auth.currentUser == null ? '/register' : '/register',
+      initialRoute: initial,
+
+      // rutas declaradas
       routes: {
-        '/register': (context) => RegisterScreen(),
-        '/login': (context) => LoginScreen(),
-        '/choose-role': (context) => const ChooseRoleScreen(),
-        '/home': (context) => const HomeScreen(),
-        '/profile': (context) => const ProfileScreen(),
-        '/welcome': (context) => const WelcomeScreen(),
+        '/register'    : (_) => RegisterScreen(),
+        '/login'       : (_) => LoginScreen(),
+        '/choose-role' : (_) => const ChooseRoleScreen(),
+        '/home'        : (_) => const HomeScreen(),
+        '/profile'     : (_) => const ProfileScreen(),
+        '/welcome'     : (_) => const WelcomeScreen(),
+      },
+
+      /* cualquier otra ruta la resolvemos aquí ― por ejemplo /flat-detail */
+      onGenerateRoute: (settings) {
+        if (settings.name == '/flat-detail') {
+          final pisoId = settings.arguments as String?;
+          if (pisoId != null) {
+            return MaterialPageRoute(
+              builder: (_) => PisoDetailScreen(pisoId: pisoId),
+            );
+          }
+        }
+        // por defecto devolvemos null y dejaríamos que onUnknownRoute avise
+        return null;
       },
     );
   }

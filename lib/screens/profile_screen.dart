@@ -1,5 +1,7 @@
+// lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../services/auth_service.dart';
 import 'create_flat_info_screen.dart';
 import 'home_screen.dart';
@@ -8,6 +10,7 @@ import 'messages_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -23,6 +26,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _supabase = Supabase.instance.client;
   }
 
+  /* ───────────────── helpers ───────────────── */
   String _formatRole(String rol) {
     switch (rol) {
       case 'busco_piso':
@@ -34,81 +38,142 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /* ───────────────── DATA ───────────────── */
   Future<Map<String, dynamic>> _fetchData() async {
-    final user = _supabase.auth.currentUser!;
+    final uid = _supabase.auth.currentUser!.id;
 
-    // Datos usuario
-    final userData = await _supabase
+    /* 1. usuario */
+    final user = await _supabase
         .from('usuarios')
         .select('nombre, edad, rol')
-        .eq('id', user.id)
+        .eq('id', uid)
         .single();
 
-    // Datos perfil
-    final profileData = await _supabase
+    /* 2. perfil */
+    final prof = await _supabase
         .from('perfiles')
         .select('biografia, estilo_vida, deportes, entretenimiento, fotos')
-        .eq('usuario_id', user.id)
+        .eq('usuario_id', uid)
         .single();
 
-    // Datos de su piso (si es anfitrión)
-    final pisoList = await _supabase
+    /* 3. piso (si ha publicado) */
+    final pisos = await _supabase
         .from('publicaciones_piso')
-        .select('id, direccion')
-        .eq('anfitrion_id', user.id);
-    final piso = (pisoList as List).isNotEmpty
-        ? pisoList.first
-        : null;
+        .select('id, direccion, ciudad, fotos')
+        .eq('anfitrion_id', uid);
+    final piso = (pisos as List).isNotEmpty ? pisos.first : null;
 
-    // Avatar
-    final fotosRaw = List<String>.from(profileData['fotos'] ?? []);
-    String? avatarUrl;
-    if (fotosRaw.isNotEmpty) {
-      final first = fotosRaw.first;
-      avatarUrl = first.startsWith('http')
-          ? first
+    /* 4. avatar */
+    String? avatar;
+    final fotosProf = List<String>.from(prof['fotos'] ?? []);
+    if (fotosProf.isNotEmpty) {
+      avatar = fotosProf.first.startsWith('http')
+          ? fotosProf.first
           : _supabase.storage
           .from('profile.photos')
-          .getPublicUrl(first);
+          .getPublicUrl(fotosProf.first);
     }
-    return {
-      'nombre': userData['nombre'] as String,
-      'edad': userData['edad'] as int?,
-      'rol': _formatRole(userData['rol'] as String),
-      'biografia': profileData['biografia'] as String? ?? '',
-      'avatarUrl': avatarUrl,
-      'intereses': [
-        ...List<String>.from(profileData['estilo_vida'] ?? []),
-        ...List<String>.from(profileData['deportes'] ?? []),
-        ...List<String>.from(profileData['entretenimiento'] ?? []),
-      ],
-      'piso': piso, // puede ser null o {id, direccion}
-    };
 
+    return {
+      'nombre': user['nombre'],
+      'edad': user['edad'],
+      'rol': _formatRole(user['rol']),
+      'biografia': prof['biografia'] ?? '',
+      'intereses': [
+        ...List<String>.from(prof['estilo_vida'] ?? []),
+        ...List<String>.from(prof['deportes'] ?? []),
+        ...List<String>.from(prof['entretenimiento'] ?? []),
+      ],
+      'avatar': avatar,
+      'piso': piso, // null o mapa con id, direccion, ciudad, fotos
+    };
+  }
+
+  /* ───────────────── dialogs / acciones ───────────────── */
+  void _openBioDialog(String currentBio) {
+    final ctrl = TextEditingController(text: currentBio);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Biografía'),
+        content: TextField(
+          controller: ctrl,
+          minLines: 3,
+          maxLines: 5,
+          decoration: const InputDecoration(
+              hintText: 'Cuéntanos algo sobre ti',
+              border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE3A62F),
+                foregroundColor: Colors.white),
+            onPressed: () async {
+              final texto = ctrl.text.trim();
+              final uid = _supabase.auth.currentUser!.id;
+              try {
+                final upd = await _supabase
+                    .from('perfiles')
+                    .update({'biografia': texto})
+                    .eq('usuario_id', uid)
+                    .maybeSingle();
+                if (upd == null) {
+                  await _supabase
+                      .from('perfiles')
+                      .insert({'usuario_id': uid, 'biografia': texto});
+                }
+                if (!mounted) return;
+                Navigator.pop(context);
+                setState(() {}); // refrescar
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Biografía guardada')));
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _onBottomNavChanged(int idx) {
     if (idx == _selectedBottomIndex) return;
-    late Widget screen;
-    if (idx == 0) screen = const HomeScreen();
-    if (idx == 1) screen = const FavoritesScreen();
-    if (idx == 2) screen = const MessagesScreen();
-    if (idx == 3) screen = const ProfileScreen();
+    Widget screen;
+    if (idx == 0) {
+      screen = const HomeScreen();
+    } else if (idx == 1) {
+      screen = const FavoritesScreen();
+    } else if (idx == 2) {
+      screen = const MessagesScreen();
+    } else {
+      screen = const ProfileScreen();
+    }
     Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => screen),
-    );
+        context, MaterialPageRoute(builder: (_) => screen));
     _selectedBottomIndex = idx;
   }
 
   void _signOut() async {
     await _auth.signOut();
+    if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
 
+  /* ───────────────── UI ───────────────── */
   @override
   Widget build(BuildContext context) {
     const accent = Color(0xFFE3A62F);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -118,25 +183,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: const Icon(Icons.arrow_back, color: Colors.black),
             onPressed: () => Navigator.pop(context)),
         title: const Text('ChillRoom',
-            style: TextStyle(
-                color: accent, fontWeight: FontWeight.bold, fontSize: 20)),
+            style:
+            TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 20)),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: Stack(children: [
-              const Icon(Icons.notifications_none, color: Colors.black),
-              Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                          color: Colors.red, shape: BoxShape.circle)))
-            ]),
-            onPressed: () {},
-          )
-        ],
       ),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _fetchData(),
@@ -147,67 +196,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (snap.hasError) {
             return Center(child: Text('Error: ${snap.error}'));
           }
-          final data = snap.data!;
-          final fotoUrl = data['avatarUrl'] as String?;
-          final intereses = data['intereses'] as List<String>;
-          final piso = data['piso'] as Map<String, dynamic>?;
+          final d = snap.data!;
+          final avatar = d['avatar'] as String?;
+          final intereses = d['intereses'] as List<String>;
+          final piso = d['piso'] as Map<String, dynamic>?;
+
+          /* mini-foto (si hay piso) */
+          String? miniUrl;
+          if (piso != null &&
+              piso['fotos'] != null &&
+              (piso['fotos'] as List).isNotEmpty) {
+            final first = (piso['fotos'] as List).first as String;
+            miniUrl = first.startsWith('http')
+                ? first
+                : _supabase.storage.from('flat.photos').getPublicUrl(first);
+          }
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Avatar
+                /* ---------- avatar ---------- */
                 Center(
-                  child: fotoUrl == null
-                      ? const CircleAvatar(
-                      radius: 60,
-                      backgroundImage:
-                      AssetImage('assets/default_avatar.png'))
-                      : CircleAvatar(
+                  child: CircleAvatar(
                     radius: 60,
-                    backgroundColor: Colors.grey[200],
-                    child: ClipOval(
-                      child: Image.network(fotoUrl,
-                          width: 120,
-                          height: 120,
-                          fit: BoxFit.cover, errorBuilder:
-                              (_, __, ___) {
-                            return Image.asset(
-                                'assets/default_avatar.png',
-                                width: 120,
-                                height: 120,
-                                fit: BoxFit.cover);
-                          }),
-                    ),
+                    backgroundImage: avatar != null
+                        ? NetworkImage(avatar)
+                        : const AssetImage('assets/default_avatar.png')
+                    as ImageProvider,
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Nombre, edad, rol
                 Text(
-                    '${data['nombre']}${data['edad'] != null ? ', ${data['edad']}' : ''}',
+                    '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold)),
+                    style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text(data['rol'],
+                Text(d['rol'],
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey[700])),
+
+                /* ---------- Tu piso ---------- */
                 const SizedBox(height: 24),
-                // Tu piso
                 const Text('Tu piso',
-                    style:
-                    TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 if (piso == null) ...[
                   const Text('Aún no has añadido tu piso',
                       style: TextStyle(color: Colors.grey)),
                   const SizedBox(height: 8),
                   ElevatedButton(
-                    onPressed: () =>
-                        Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => const CreateFlatInfoScreen()
-                        )),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const CreateFlatInfoScreen())),
                     style: ElevatedButton.styleFrom(
                         backgroundColor: accent,
                         foregroundColor: Colors.white,
@@ -218,38 +260,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ] else ...[
-                  Text(piso['direccion'] as String,
-                      style: const TextStyle(fontSize: 14)),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, '/flat-detail',
-                            arguments: piso['id']),
-                    style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24)),
-                        side: BorderSide(color: accent)),
-                    child: const Text('Ver detalles',
-                        style: TextStyle(color: accent)),
+                  GestureDetector(
+                    onTap: () => Navigator.pushNamed(context, '/flat-detail',
+                        arguments: piso['id']),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8F9FF),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: SizedBox(
+                              width: 80,
+                              height: 80,
+                              child: miniUrl != null
+                                  ? Image.network(miniUrl, fit: BoxFit.cover)
+                                  : Container(
+                                color: Colors.grey[300],
+                                child: const Icon(Icons.home,
+                                    size: 36, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(piso['direccion'] as String? ?? '',
+                                  style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text(piso['ciudad'] as String? ?? '',
+                                  style: TextStyle(
+                                      color: Colors.grey[600], fontSize: 15)),
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
                   ),
                 ],
+
+                /* ---------- Biografía ---------- */
                 const SizedBox(height: 24),
-                // Biografía + Añadir
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
-                    Text('Biografía',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                    // mantenemos el botón aunque no esté en el diseño
-                    TextButton(onPressed: null, child: Text('Añadir'))
+                  children: [
+                    const Text('Biografía',
+                        style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    TextButton(
+                      onPressed: () => _openBioDialog(d['biografia']),
+                      child: Text(
+                        (d['biografia'] as String).isEmpty ? 'Añadir' : 'Editar',
+                        style: const TextStyle(color: accent),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(data['biografia'],
+                Text(d['biografia'],
                     style: TextStyle(color: Colors.grey[700])),
+
+                /* ---------- Intereses ---------- */
                 const SizedBox(height: 24),
-                // Intereses
                 const Text('Intereses',
                     style:
                     TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
@@ -257,18 +335,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Wrap(
                   spacing: 12,
                   runSpacing: 8,
-                  children: intereses.map((i) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          border:
-                          Border.all(color: Colors.grey.shade400)),
-                      child: Text(i),
-                    );
-                  }).toList(),
+                  children: intereses
+                      .map((i) => Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        border:
+                        Border.all(color: Colors.grey.shade400)),
+                    child: Text(i),
+                  ))
+                      .toList(),
                 ),
+
                 const SizedBox(height: 32),
                 ElevatedButton(
                   onPressed: _signOut,
@@ -286,6 +365,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         },
       ),
+
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedBottomIndex,
         selectedItemColor: accent,
@@ -293,12 +373,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         onTap: _onBottomNavChanged,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.favorite_border), label: ''),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.message_outlined), label: ''),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.message_outlined), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: ''),
         ],
       ),
     );
