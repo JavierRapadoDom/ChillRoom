@@ -2,152 +2,173 @@ import 'package:chillroom/screens/enter_name_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class ChooseRoleScreen extends StatefulWidget{
-  const ChooseRoleScreen ({super.key});
+class ChooseRoleScreen extends StatefulWidget {
+  const ChooseRoleScreen({super.key});
 
   @override
   State<ChooseRoleScreen> createState() => _ChooseRoleScreenState();
 }
 
-class _ChooseRoleScreenState extends State<ChooseRoleScreen>{
-  String? selectedRole;
+class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
+  /* ---------- constantes ---------- */
+  static const accent = Color(0xFFE3A62F);
+  static const _progress = 0.10;          // ← 20 % del flujo (ajusta si quieres)
 
-  /// Convierte el texto del botón al valor del enum en la base de datos
+  /* ---------- estado ---------- */
+  String? _selectedRole;
+  bool    _saving = false;
+
+  /* ---------- helpers ---------- */
   String _roleToEnum(String role) {
     switch (role) {
-      case 'Busco compañeros de piso':
-        return 'busco_compañero';
-      case 'Busco piso':
-        return 'busco_piso';
-      case 'Solo explorando':
-      default:
-        return 'explorando';
+      case 'Busco compañeros de piso': return 'busco_compañero';
+      case 'Busco piso'               : return 'busco_piso';
+      default                         : return 'explorando';
     }
   }
 
-
-  void _selectRole(String role){
-    setState(() {
-      selectedRole = role;
-    });
-  }
-
-  Future<void> _continue() async {
-    if(selectedRole == null){
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Por favor selecciona un rol")),
-      );
+  Future<void> _onContinue() async {
+    if (_selectedRole == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Por favor selecciona un rol')));
       return;
     }
 
+    setState(() => _saving = true);
     final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final user     = supabase.auth.currentUser;
 
-    if(user==null){
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error: usuario no identificado")),
-      );
-      return;
-    }
-    final enumRol = _roleToEnum(selectedRole!);
-    try{
-      await supabase.from('usuarios').update({
-        'rol': enumRol,
-      }).eq('id', user.id);
-      Navigator.push(
+    try {
+      await supabase
+          .from('usuarios')
+          .update({'rol': _roleToEnum(_selectedRole!)})
+          .eq('id', user!.id);
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const EnterNameScreen()),
+        MaterialPageRoute(builder: (_) => const EnterNameScreen()),
       );
-    } catch(e){
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error al guardar el rol: $e")),
-      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error: $e')));
+      setState(() => _saving = false);
     }
   }
 
+  /* ---------- UI ---------- */
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+
+      /* evitamos AppBar para coincidir con maqueta  */
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 16),
-            const Text(
-              "Elige tu rol",
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+            /* barra de progreso fina */
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              height: 4,
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: _progress,
+                child: Container(color: accent),
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              "Selecciona al menos una opción",
-              style: TextStyle(color: Colors.grey),
+
+            /* botón atrás */
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.grey),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
-            const SizedBox(height: 32),
-            _buildOptionButton("Busco compañeros de piso"),
-            const SizedBox(height: 16),
-            _buildOptionButton("Busco piso"),
-            const SizedBox(height: 16),
-            _buildOptionButton("Solo explorando"),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _continue,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE3A62F),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                ),
-                child: const Text(
-                  "CONTINUAR",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+
+            /* contenido desplazable */
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Elige tu rol',
+                      style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('Selecciona al menos una opción',
+                        style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 40),
+
+                    _roleButton('Busco compañeros de piso'),
+                    const SizedBox(height: 16),
+                    _roleButton('Busco piso'),
+                    const SizedBox(height: 16),
+                    _roleButton('Solo explorando'),
+                  ],
                 ),
               ),
-            )
+            ),
+
+            /* botón continuar */
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _onContinue,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24)),
+                  ),
+                  child: _saving
+                      ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 3, color: Colors.white))
+                      : const Text('CONTINUAR',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white)),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildOptionButton(String role){
-    final bool isSelected = selectedRole == role;
+  /* ---------- widget opción ---------- */
+  Widget _roleButton(String txt) {
+    final sel = _selectedRole == txt;
     return GestureDetector(
-      onTap: () => _selectRole(role),
+      onTap: () => setState(() => _selectedRole = txt),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE3A62F) : Colors.transparent,
+          color: sel ? accent : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade400),
+          border: Border.all(color: sel ? accent : Colors.grey.shade400),
         ),
         child: Center(
           child: Text(
-            role,
+            txt,
             style: TextStyle(
-              color: isSelected ? Colors.white : Colors.black,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
+                color: sel ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold),
           ),
         ),
       ),
     );
   }
-
 }

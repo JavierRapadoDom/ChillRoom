@@ -1,3 +1,4 @@
+// lib/screens/lifestyle_screen.dart
 import 'package:chillroom/screens/sports_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,108 +11,130 @@ class LifestyleScreen extends StatefulWidget {
 }
 
 class _LifestyleScreenState extends State<LifestyleScreen> {
-  final List<String> lifestyleOptions = [
-    "Trabajo desde casa",
-    "Fiestero",
-    "Madrugador",
-    "Nocturno",
-    "Ordenado",
-    "Tranquilo",
-    "Extrovertido",
-    "Introvertido",
-  ];
+  /* ---------- constantes ---------- */
+  static const accent    = Color(0xFFE3A62F);
+  static const _progress = 0.70;          // 70 %
 
-  final List<String> selectedLifestyles = [];
+  /// Texto → icono
+  final _options = <String, IconData>{
+    'Trabajo en casa' : Icons.home_work_outlined,
+    'Madrugador'      : Icons.wb_sunny_outlined,
+    'Nocturno'        : Icons.bedtime_outlined,
+    'Estudiante'      : Icons.school_outlined,
+    'Minimalista'     : Icons.format_paint_outlined,
+    'Jardinería'      : Icons.grass_outlined,
+  };
 
-  void _toggleLifestyle(String lifestyle) {
-    setState(() {
-      if (selectedLifestyles.contains(lifestyle)) {
-        selectedLifestyles.remove(lifestyle);
-      } else {
-        selectedLifestyles.add(lifestyle);
-      }
-    });
-  }
+  final List<String> _selected = [];
 
-  void _continue() async {
-    if (selectedLifestyles.isEmpty) {
+  /* ---------- lógica ---------- */
+  void _toggle(String label) => setState(() =>
+  _selected.contains(label) ? _selected.remove(label) : _selected.add(label));
+
+  Future<void> _continue() async {
+    if (_selected.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Selecciona al menos un estilo de vida")),
+        const SnackBar(content: Text('Selecciona al menos un estilo de vida')),
       );
       return;
     }
 
     final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
-
+    final user     = supabase.auth.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error: usuario no identificado")),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Error: usuario no identificado')));
       return;
     }
 
     try {
-      await supabase.from('perfiles').update({
-        'estilo_vida': selectedLifestyles,
-      }).eq('usuario_id', user.id);
+      await supabase.from('perfiles')
+          .update({'estilo_vida': _selected})
+          .eq('usuario_id', user.id);
 
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const SportsScreen()),
-      );
+      if (!mounted) return;
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => const SportsScreen()));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error al guardar estilos de vida: $e")),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
     }
   }
 
+  /* ---------- UI ---------- */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 16),
-            const Text(
-              "Mi estilo de vida es",
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+            // barra de progreso
+            Container(
+              height: 4,
+              margin: const EdgeInsets.only(top: 8),
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: _progress,
+                child: Container(color: accent),
               ),
             ),
-            const SizedBox(height: 24),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: lifestyleOptions.map(_buildChip).toList(),
+            // flecha atrás
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.grey),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _continue,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE3A62F),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                ),
-                child: const Text(
-                  "CONTINUAR",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    const Text(
+                      'ESTILO DE VIDA',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Selecciona al menos una opción',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    const SizedBox(height: 24),
+
+                    /* ---------- chips centrados ---------- */
+                    Center(
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: _options.entries
+                            .map((e) => _chip(e.key, e.value))
+                            .toList(),
+                      ),
+                    ),
+
+                    const SizedBox(height: 48),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _continue,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24)),
+                        ),
+                        child: const Text('CONTINUAR',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
               ),
             ),
@@ -121,23 +144,32 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     );
   }
 
-  Widget _buildChip(String lifestyle) {
-    final bool isSelected = selectedLifestyles.contains(lifestyle);
+  /* ---------- chip ---------- */
+  Widget _chip(String label, IconData icon) {
+    final sel = _selected.contains(label);
     return GestureDetector(
-      onTap: () => _toggleLifestyle(lifestyle),
+      onTap: () => _toggle(label),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE3A62F) : Colors.transparent,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.grey.shade400),
+          color: sel ? accent : Colors.transparent,
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: sel ? accent : Colors.grey.shade400),
         ),
-        child: Text(
-          lifestyle,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: sel ? Colors.white : accent),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: sel ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );

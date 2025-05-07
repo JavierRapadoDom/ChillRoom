@@ -1,9 +1,11 @@
+// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
+import '../widgets/app_menu.dart';
 import '../widgets/usuarios_view.dart';
 import '../widgets/pisos_view.dart';
 import 'favorites_screen.dart';
-import 'profile_screen.dart';
 import 'messages_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,21 +23,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onBottomNavChanged(int index) {
+    if (index == _selectedBottomIndex) return;
     setState(() => _selectedBottomIndex = index);
+
+    Widget dest;
     switch (index) {
       case 0:
-      // Ya estamos en Home: no hacemos nada
-        break;
+        return; // Ya estamos en Home
       case 1:
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen()));
+        dest = const FavoritesScreen();
         break;
       case 2:
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const MessagesScreen()));
+        dest = const MessagesScreen();
         break;
       case 3:
-        Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        dest = const ProfileScreen();
         break;
+      default:
+        dest = const FavoritesScreen();
     }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => dest),
+    );
   }
 
   @override
@@ -45,15 +55,12 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
 
-      // 1) AppBar sólo con título y notificaciones
+      // 1) AppBar con título y notificaciones
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text(
           "ChillRoom",
-          style: TextStyle(
-            color: accent,
-            fontWeight: FontWeight.bold,
-            fontSize: 24,
-          ),
+          style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 24),
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
@@ -67,8 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   right: 0, top: 0,
                   child: Container(
                     width: 8, height: 8,
-                    decoration: const BoxDecoration(
-                        color: Colors.red, shape: BoxShape.circle),
+                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
                   ),
                 )
               ],
@@ -78,60 +84,27 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
 
-      // 2) Toggle y contenido
+      // 2) Toggle Usuarios/Pisos y contenido
       body: Column(
         children: [
-          // Toggle Usuarios / Pisos
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Row(
               children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _onToggleChanged(0),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _selectedTabIndex == 0 ? accent : Colors.grey[200],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        "Usuarios",
-                        style: TextStyle(
-                          color: _selectedTabIndex == 0 ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
+                _buildToggleButton(
+                  label: "Usuarios",
+                  selected: _selectedTabIndex == 0,
+                  onTap: () => _onToggleChanged(0),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _onToggleChanged(1),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _selectedTabIndex == 1 ? accent : Colors.grey[200],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        "Pisos",
-                        style: TextStyle(
-                          color: _selectedTabIndex == 1 ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
+                _buildToggleButton(
+                  label: "Pisos",
+                  selected: _selectedTabIndex == 1,
+                  onTap: () => _onToggleChanged(1),
                 ),
               ],
             ),
           ),
-
-          // Vista Usuarios o Pisos
           Expanded(
             child: _selectedTabIndex == 0
                 ? const UsuariosView()
@@ -140,18 +113,39 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
 
-      // 3) BottomNavigationBar abajo
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedBottomIndex,
-        selectedItemColor: accent,
-        unselectedItemColor: Colors.grey,
-        onTap: _onBottomNavChanged,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.message_outlined), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: ''),
-        ],
+      // 3) Menú inferior usando solo AppMenu
+      bottomNavigationBar: AppMenu(
+        selectedBottomIndex: _selectedBottomIndex,
+        onBottomNavChanged: _onBottomNavChanged,
+      ),
+    );
+  }
+
+  Widget _buildToggleButton({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    const accent = Color(0xFFE3A62F);
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? accent : Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
       ),
     );
   }

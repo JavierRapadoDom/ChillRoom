@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../widgets/app_menu.dart';
 import '../services/auth_service.dart';
 import 'create_flat_info_screen.dart';
 import 'home_screen.dart';
@@ -18,7 +19,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _auth = AuthService();
   late final SupabaseClient _supabase;
-  int _selectedBottomIndex = 3;
+  int _selectedBottomIndex = 3; // Perfil tab
 
   @override
   void initState() {
@@ -26,7 +27,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _supabase = Supabase.instance.client;
   }
 
-  /* ───────────────── helpers ───────────────── */
   String _formatRole(String rol) {
     switch (rol) {
       case 'busco_piso':
@@ -38,40 +38,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /* ───────────────── DATA ───────────────── */
   Future<Map<String, dynamic>> _fetchData() async {
     final uid = _supabase.auth.currentUser!.id;
 
-    /* 1. usuario */
     final user = await _supabase
         .from('usuarios')
         .select('nombre, edad, rol')
         .eq('id', uid)
         .single();
 
-    /* 2. perfil */
     final prof = await _supabase
         .from('perfiles')
         .select('biografia, estilo_vida, deportes, entretenimiento, fotos')
         .eq('usuario_id', uid)
         .single();
 
-    /* 3. piso (si ha publicado) */
     final pisos = await _supabase
         .from('publicaciones_piso')
         .select('id, direccion, ciudad, fotos')
         .eq('anfitrion_id', uid);
     final piso = (pisos as List).isNotEmpty ? pisos.first : null;
 
-    /* 4. avatar */
     String? avatar;
     final fotosProf = List<String>.from(prof['fotos'] ?? []);
     if (fotosProf.isNotEmpty) {
       avatar = fotosProf.first.startsWith('http')
           ? fotosProf.first
-          : _supabase.storage
-          .from('profile.photos')
-          .getPublicUrl(fotosProf.first);
+          : _supabase.storage.from('profile.photos').getPublicUrl(fotosProf.first);
     }
 
     return {
@@ -85,58 +78,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ...List<String>.from(prof['entretenimiento'] ?? []),
       ],
       'avatar': avatar,
-      'piso': piso, // null o mapa con id, direccion, ciudad, fotos
+      'piso': piso,
     };
   }
 
-  /* ───────────────── dialogs / acciones ───────────────── */
   void _openBioDialog(String currentBio) {
     final ctrl = TextEditingController(text: currentBio);
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Biografía'),
         content: TextField(
           controller: ctrl,
           minLines: 3,
           maxLines: 5,
           decoration: const InputDecoration(
-              hintText: 'Cuéntanos algo sobre ti',
-              border: OutlineInputBorder()),
+            hintText: 'Cuéntanos algo sobre ti',
+            border: OutlineInputBorder(),
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE3A62F),
-                foregroundColor: Colors.white),
+              backgroundColor: const Color(0xFFE3A62F),
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               final texto = ctrl.text.trim();
               final uid = _supabase.auth.currentUser!.id;
               try {
-                final upd = await _supabase
+                await _supabase
                     .from('perfiles')
-                    .update({'biografia': texto})
-                    .eq('usuario_id', uid)
-                    .maybeSingle();
-                if (upd == null) {
-                  await _supabase
-                      .from('perfiles')
-                      .insert({'usuario_id': uid, 'biografia': texto});
-                }
+                    .upsert(
+                  {'usuario_id': uid, 'biografia': texto},
+                  onConflict: 'usuario_id',
+                );
                 if (!mounted) return;
-                Navigator.pop(context);
-                setState(() {}); // refrescar
+                Navigator.pop(dialogContext);
+                setState(() {}); // refresh
                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Biografía guardada')));
+                  const SnackBar(content: Text('Biografía guardada')),
+                );
               } catch (e) {
                 if (!mounted) return;
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text('Error: $e')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error: $e')),
+                );
               }
             },
             child: const Text('Guardar'),
@@ -148,18 +140,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _onBottomNavChanged(int idx) {
     if (idx == _selectedBottomIndex) return;
-    Widget screen;
-    if (idx == 0) {
-      screen = const HomeScreen();
-    } else if (idx == 1) {
-      screen = const FavoritesScreen();
-    } else if (idx == 2) {
-      screen = const MessagesScreen();
-    } else {
-      screen = const ProfileScreen();
+    late Widget screen;
+    switch (idx) {
+      case 0:
+        screen = const HomeScreen();
+        break;
+      case 1:
+        screen = const FavoritesScreen();
+        break;
+      case 2:
+        screen = const MessagesScreen();
+        break;
+      default:
+        screen = const ProfileScreen();
     }
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => screen));
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
     _selectedBottomIndex = idx;
   }
 
@@ -169,7 +164,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
-  /* ───────────────── UI ───────────────── */
   @override
   Widget build(BuildContext context) {
     const accent = Color(0xFFE3A62F);
@@ -177,14 +171,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
-            onPressed: () => Navigator.pop(context)),
-        title: const Text('ChillRoom',
-            style:
-            TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 20)),
+        title: const Text(
+          'ChillRoom',
+          style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 20),
+        ),
         centerTitle: true,
       ),
       body: FutureBuilder<Map<String, dynamic>>(
@@ -201,7 +194,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final intereses = d['intereses'] as List<String>;
           final piso = d['piso'] as Map<String, dynamic>?;
 
-          /* mini-foto (si hay piso) */
           String? miniUrl;
           if (piso != null &&
               piso['fotos'] != null &&
@@ -217,28 +209,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                /* ---------- avatar ---------- */
                 Center(
                   child: CircleAvatar(
                     radius: 60,
                     backgroundImage: avatar != null
                         ? NetworkImage(avatar)
-                        : const AssetImage('assets/default_avatar.png')
-                    as ImageProvider,
+                        : const AssetImage('assets/default_avatar.png') as ImageProvider,
                   ),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                    '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
-                    textAlign: TextAlign.center,
-                    style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 4),
-                Text(d['rol'],
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[700])),
-
-                /* ---------- Tu piso ---------- */
+                Text(
+                  d['rol'],
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[700]),
+                ),
                 const SizedBox(height: 24),
                 const Text('Tu piso',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -248,21 +238,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: TextStyle(color: Colors.grey)),
                   const SizedBox(height: 8),
                   ElevatedButton(
-                    onPressed: () => Navigator.push(context,
+                    onPressed: () => Navigator.push(
+                        context,
                         MaterialPageRoute(builder: (_) => const CreateFlatInfoScreen())),
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: accent,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24)),
-                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                      backgroundColor: accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                     child: const Text('Añadir piso',
                         style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ] else ...[
                   GestureDetector(
-                    onTap: () => Navigator.pushNamed(context, '/flat-detail',
-                        arguments: piso['id']),
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/flat-detail', arguments: piso['id']),
                     child: Container(
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8F9FF),
@@ -289,14 +280,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(piso['direccion'] as String? ?? '',
-                                  style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold)),
+                              Text(
+                                piso['direccion'] as String? ?? '',
+                                style: const TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
                               const SizedBox(height: 4),
-                              Text(piso['ciudad'] as String? ?? '',
-                                  style: TextStyle(
-                                      color: Colors.grey[600], fontSize: 15)),
+                              Text(
+                                piso['ciudad'] as String? ?? '',
+                                style: TextStyle(
+                                    color: Colors.grey[600], fontSize: 15),
+                              ),
                             ],
                           )
                         ],
@@ -304,15 +298,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                 ],
-
-                /* ---------- Biografía ---------- */
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Biografía',
-                        style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     TextButton(
                       onPressed: () => _openBioDialog(d['biografia']),
                       child: Text(
@@ -323,31 +314,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(d['biografia'],
-                    style: TextStyle(color: Colors.grey[700])),
-
-                /* ---------- Intereses ---------- */
+                Text(d['biografia'], style: TextStyle(color: Colors.grey[700])),
                 const SizedBox(height: 24),
                 const Text('Intereses',
-                    style:
-                    TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 12,
                   runSpacing: 8,
                   children: intereses
                       .map((i) => Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(20),
-                        border:
-                        Border.all(color: Colors.grey.shade400)),
+                        border: Border.all(color: Colors.grey.shade400)),
                     child: Text(i),
                   ))
                       .toList(),
                 ),
-
                 const SizedBox(height: 32),
                 ElevatedButton(
                   onPressed: _signOut,
@@ -355,8 +339,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       backgroundColor: accent,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                   child: const Text('Cerrar sesión',
                       style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
@@ -365,18 +348,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         },
       ),
-
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedBottomIndex,
-        selectedItemColor: accent,
-        unselectedItemColor: Colors.grey,
-        onTap: _onBottomNavChanged,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.message_outlined), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: ''),
-        ],
+      bottomNavigationBar: AppMenu(
+        selectedBottomIndex: _selectedBottomIndex,
+        onBottomNavChanged: _onBottomNavChanged,
       ),
     );
   }

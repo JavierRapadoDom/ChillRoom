@@ -1,3 +1,4 @@
+import 'package:chillroom/screens/edad_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -42,6 +43,7 @@ class MyApp extends StatelessWidget {
         '/home'        : (_) => const HomeScreen(),
         '/profile'     : (_) => const ProfileScreen(),
         '/welcome'     : (_) => const WelcomeScreen(),
+        '/age' : (_) => const EdadScreen(),
       },
 
       /* cualquier otra ruta la resolvemos aquí ― por ejemplo /flat-detail */

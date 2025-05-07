@@ -1,9 +1,12 @@
 // lib/screens/chat_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/scheduler.dart';
 
+import '../widgets/app_menu.dart';
 import 'home_screen.dart';
 import 'favorites_screen.dart';
+import 'messages_screen.dart';
 import 'profile_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -28,27 +31,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final _scrollCtrl = ScrollController();
 
   late final String _meId;
-
-  /* ---------- bottom-nav ---------- */
-  int _selectedIdx = 2;                      // 0-Home 1-Fav 2-Msg 3-Profile
-
-  void _onNavTap(int i) {
-    if (i == _selectedIdx) return;
-    Widget? screen;
-    switch (i) {
-      case 0: screen = const HomeScreen();     break;
-      case 1: screen = const FavoritesScreen();break;
-      case 3: screen = const ProfileScreen();  break;
-    }
-    if (screen != null) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => screen!),
-      );
-    }
-    setState(() => _selectedIdx = i);
-  }
-  /* -------------------------------- */
+  int _selectedIndex = 2; // Mensajes
 
   @override
   void initState() {
@@ -56,7 +39,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _meId = _supabase.auth.currentUser!.id;
   }
 
-  /* ---------------- ENVIAR ---------------- */
+  void _onNavTap(int idx) {
+    if (idx == _selectedIndex) return;
+    Widget dest;
+    switch (idx) {
+      case 0:
+        dest = const HomeScreen();
+        break;
+      case 1:
+        dest = const FavoritesScreen();
+        break;
+      case 2:
+        dest = const MessagesScreen();
+        break;
+      case 3:
+        dest = const ProfileScreen();
+        break;
+      default:
+        dest = const HomeScreen();
+    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => dest),
+    );
+    setState(() => _selectedIndex = idx);
+  }
+
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
@@ -70,7 +78,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       'visto'       : false,
     });
 
-    // baja el scroll al final
+    // bajar scroll
     await Future.delayed(const Duration(milliseconds: 50));
     _scrollCtrl.animateTo(
       0,
@@ -79,14 +87,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  /* ---------------- BURBUJA ---------------- */
   Widget _bubble(String msg, bool isMe) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding:
-        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isMe ? accent : Colors.grey[200],
           borderRadius: BorderRadius.circular(16),
@@ -102,12 +108,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  /* ---------------- UI ---------------- */
   @override
   Widget build(BuildContext context) {
-    final partner = widget.partner;
-
-    // Stream orden ascendente
     final stream = _supabase
         .from('mensajes')
         .stream(primaryKey: ['id'])
@@ -124,14 +126,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           children: [
             CircleAvatar(
               radius: 16,
-              backgroundImage: partner['foto_perfil'] != null
-                  ? NetworkImage(partner['foto_perfil'])
+              backgroundImage: widget.partner['foto_perfil'] != null
+                  ? NetworkImage(widget.partner['foto_perfil'])
                   : const AssetImage('assets/default_avatar.png')
               as ImageProvider,
             ),
             const SizedBox(width: 8),
             Text(
-              partner['nombre'],
+              widget.partner['nombre'],
               style: const TextStyle(
                   color: accent, fontWeight: FontWeight.bold, fontSize: 18),
             ),
@@ -139,7 +141,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
       ),
 
-      /* ----------- CUERPO ----------- */
       body: Column(
         children: [
           Expanded(
@@ -150,14 +151,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final msgs = snap.data!;
+
+                // Marcar como vistos los mensajes recibidos sin leer
+                SchedulerBinding.instance.addPostFrameCallback((_) async {
+                  final toMark = msgs
+                      .where((m) =>
+                  m['receptor_id'] == _meId && m['visto'] == false)
+                      .map((m) => m['id'])
+                      .toList();
+                  if (toMark.isNotEmpty) {
+                    final listStr = toMark.join(',');
+                    await _supabase
+                        .from('mensajes')
+                        .update({'visto': true})
+                        .or('id.in.(${toMark.join(",")})');
+
+                  }
+                });
+
                 return ListView.builder(
                   controller: _scrollCtrl,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 12),
-                  reverse: true,                              // último abajo
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  reverse: true,
                   itemCount: msgs.length,
                   itemBuilder: (_, i) {
-                    final m = msgs[msgs.length - 1 - i];      // invertido
+                    final m = msgs[msgs.length - 1 - i];
                     final isMe = m['emisor_id'] == _meId;
                     return _bubble(m['mensaje'], isMe);
                   },
@@ -166,7 +185,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ),
 
-          /* ----------- INPUT ----------- */
           SafeArea(
             top: false,
             child: Container(
@@ -200,18 +218,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ],
       ),
 
-      /* ----------- MENÚ INFERIOR ----------- */
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIdx,
-        selectedItemColor: accent,
-        unselectedItemColor: Colors.grey,
-        onTap: _onNavTap,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home),            label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.message_outlined),label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline),  label: ''),
-        ],
+      bottomNavigationBar: AppMenu(
+        selectedBottomIndex: _selectedIndex,
+        onBottomNavChanged: _onNavTap,
       ),
     );
   }

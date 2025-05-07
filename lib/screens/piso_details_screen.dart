@@ -2,13 +2,17 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/favorite_service.dart';
+import '../services/chat_service.dart';
+import '../widgets/app_menu.dart';
+import 'chat_detail_screen.dart';
 import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 
 class PisoDetailScreen extends StatefulWidget {
-  final String pisoId;                              // id de la publicación
+  final String pisoId;
   const PisoDetailScreen({super.key, required this.pisoId});
 
   @override
@@ -16,23 +20,26 @@ class PisoDetailScreen extends StatefulWidget {
 }
 
 class _PisoDetailScreenState extends State<PisoDetailScreen> {
+  /* ---------- constantes ---------- */
   static const accent = Color(0xFFE3A62F);
 
-  final supabase = Supabase.instance.client;
+  /* ---------- supabase & servicios ---------- */
+  final supabase      = Supabase.instance.client;
+  final _favService   = FavoriteService();
+
+  /* ---------- estado ---------- */
   late Future<Map<String, dynamic>> _futurePiso;
-
-  /* ---------- carrusel ---------- */
+  Set<String> _myFavs = {};
   late final PageController _pageCtrl;
-  int _page = 0;
-
-  /* ---------- bottom-nav ---------- */
-  int _bottomIdx = 0;                                // 0-Home
+  int  _page                = 0;
+  int  _selectedBottomIndex  = -1;   // 0 = Home
 
   @override
   void initState() {
     super.initState();
     _pageCtrl   = PageController();
     _futurePiso = _loadPiso();
+    _loadFavs();
   }
 
   @override
@@ -41,12 +48,17 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     super.dispose();
   }
 
-  /* ────────────────── CONSULTA ────────────────── */
+  /* ─────────────────── DB helpers ─────────────────── */
+  Future<void> _loadFavs() async {
+    final favs = await _favService.getMyFavoritePisos();
+    if (mounted) setState(() => _myFavs = favs);
+  }
+
   Future<Map<String, dynamic>> _loadPiso() async {
-    /* 1) Publicación + anfitrión */
+    // 1️⃣ publicación + anfitrión
     final raw = await supabase
         .from('publicaciones_piso')
-        .select('''
+        .select(r'''
           id,
           direccion,
           descripcion,
@@ -55,7 +67,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
           metros_cuadrados,
           fotos,
           anfitrion:usuarios!publicaciones_piso_anfitrion_id_fkey(
-            id,nombre,
+            id, nombre,
             perfiles!perfiles_usuario_id_fkey(fotos)
           )
         ''')
@@ -64,10 +76,15 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
 
     final piso = Map<String, dynamic>.from(raw as Map);
 
-    /* 2) Compañeros */
+    // 2️⃣ compañeros (tabla sin tilde)
     final compsRaw = await supabase
         .from('compañeros_piso')
-        .select('usuario:usuarios!compañeros_piso_usuario_id_fkey(id,nombre,perfiles!perfiles_usuario_id_fkey(fotos))')
+        .select(r'''
+          usuario:usuarios!compañeros_piso_usuario_id_fkey(
+            id, nombre,
+            perfiles!perfiles_usuario_id_fkey(fotos)
+          )
+        ''')
         .eq('publicacion_piso_id', widget.pisoId);
 
     final companeros = (compsRaw as List)
@@ -75,14 +92,16 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
         .toList();
     piso['companeros'] = companeros;
 
-    /* 3) resolver avatar */
+    // 3️⃣ resolver avatarUrl para anfitrión & compañeros
     Map<String, dynamic> _withAvatar(Map<String, dynamic> u) {
       final perfil = u['perfiles'] as Map<String, dynamic>? ?? {};
       final fotos  = List<String>.from(perfil['fotos'] ?? []);
       u['avatarUrl'] = fotos.isNotEmpty
           ? (fotos.first.startsWith('http')
           ? fotos.first
-          : supabase.storage.from('profile.photos').getPublicUrl(fotos.first))
+          : supabase.storage
+          .from('profile.photos')
+          .getPublicUrl(fotos.first))
           : null;
       return u;
     }
@@ -92,42 +111,55 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     return piso;
   }
 
-  /* ───────────── helpers ───────────── */
-  Widget _userCircle(Map<String, dynamic> user, String role) {
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 24,
-          backgroundImage: user['avatarUrl'] != null
-              ? NetworkImage(user['avatarUrl'])
-              : const AssetImage('assets/default_avatar.png') as ImageProvider,
+  /* ─────────────────── acciones ─────────────────── */
+  Future<void> _toggleFav() async {
+    await _favService.toggleFavorite(widget.pisoId);
+    await _loadFavs();
+  }
+
+  void _onBottomNavChanged(int idx) {
+    if (idx == _selectedBottomIndex) return;
+
+    Widget? dest;
+    switch (idx) {
+      case 0: dest = const HomeScreen();      break;
+      case 1: dest = const FavoritesScreen(); break;
+      case 2: dest = const MessagesScreen();  break;
+      case 3: dest = const ProfileScreen();   break;
+    }
+    if (dest != null) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest!));
+      setState(() => _selectedBottomIndex = idx);
+    }
+  }
+
+  /* ─────────────────── UI helpers ─────────────────── */
+  Widget _indicator(int len) => Positioned(
+    bottom: 8,
+    left: 0,
+    right: 0,
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(
+        len,
+            (i) => Container(
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: i == _page ? accent : Colors.white54,
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(user['nombre'] ?? '',
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        Text(role, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
-    );
-  }
+      ),
+    ),
+  );
 
-  void _onBottomTap(int i) {
-    if (i == _bottomIdx) return;
-    Widget? screen;
-    switch (i) {
-      case 0: screen = const HomeScreen();      break;
-      case 1: screen = const FavoritesScreen(); break;
-      case 2: screen = const MessagesScreen();  break;
-      case 3: screen = const ProfileScreen();   break;
-    }
-    if (screen != null) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen!));
-      setState(() => _bottomIdx = i);
-    }
-  }
-
-  /* ───────────── BUILD ───────────── */
+  /* ─────────────────── build ─────────────────── */
   @override
   Widget build(BuildContext context) {
+    final isFav = _myFavs.contains(widget.pisoId);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -139,6 +171,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
         centerTitle: true,
       ),
 
+      /* ---------------- cuerpo ---------------- */
       body: FutureBuilder<Map<String, dynamic>>(
         future: _futurePiso,
         builder: (_, snap) {
@@ -149,11 +182,16 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
             return Center(child: Text('Error: ${snap.error}'));
           }
 
-          final piso        = snap.data!;
-          final fotos       = List<String>.from(piso['fotos'] ?? []);
-          final host        = piso['anfitrion'] as Map<String, dynamic>;
-          final comps       = List<Map<String,dynamic>>.from(piso['companeros']);
-          final precioLabel = piso['precio'].toString();
+          final piso  = snap.data!;
+          final fotos = List<String>.from(piso['fotos'] ?? []);
+          final host  = piso['anfitrion'] as Map<String, dynamic>;
+          final comps = List<Map<String, dynamic>>.from(piso['companeros']);
+          final precio = piso['precio'].toString();
+
+          /* comprobamos si es mi publicación */
+          final myId   = supabase.auth.currentUser!.id;
+          final isMine = host['id'] == myId;
+          final hostName = isMine ? 'Tú' : host['nombre'];
 
           return SingleChildScrollView(
             child: Column(
@@ -168,13 +206,11 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                         controller: _pageCtrl,
                         itemCount: fotos.length,
                         onPageChanged: (i) => setState(() => _page = i),
-                        itemBuilder: (_, i) => Image.network(
-                          fotos[i],
-                          fit: BoxFit.cover,
-                        ),
+                        itemBuilder: (_, i) => Image.network(fotos[i], fit: BoxFit.cover),
                       ),
                     ),
                     if (fotos.length > 1) ...[
+                      // flecha izda
                       Positioned(
                         left: 8,
                         top: 0,
@@ -184,10 +220,12 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           onPressed: _page == 0
                               ? null
                               : () => _pageCtrl.previousPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOut),
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          ),
                         ),
                       ),
+                      // flecha dcha
                       Positioned(
                         right: 8,
                         top: 0,
@@ -197,70 +235,49 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           onPressed: _page == fotos.length - 1
                               ? null
                               : () => _pageCtrl.nextPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOut),
-                        ),
-                      ),
-                      /* indicadores */
-                      Positioned(
-                        bottom: 8,
-                        left: 0,
-                        right: 0,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(
-                            fotos.length,
-                                (i) => Container(
-                              width: 8,
-                              height: 8,
-                              margin: const EdgeInsets.symmetric(horizontal: 3),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: i == _page ? accent : Colors.white54,
-                              ),
-                            ),
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
                           ),
                         ),
                       ),
+                      _indicator(fotos.length),
                     ],
                   ],
                 ),
                 const SizedBox(height: 16),
 
-                /* -------- Dirección + fav -------- */
+                /* -------- dirección + favorito -------- */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(piso['direccion'],
-                            style: const TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.bold)),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.favorite_border),
+                        icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, size: 28),
                         color: accent,
-                        onPressed: () {/* TODO fav */},
+                        onPressed: _toggleFav,
                       ),
                     ],
                   ),
                 ),
 
-                /* -------- Ocupación / precio -------- */
+                /* -------- ocupación / precio -------- */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   child: Row(
                     children: [
                       Text('Ocupación: ${piso['ocupacion']}'),
                       const Spacer(),
-                      Text('$precioLabel €/mes',
-                          style: const TextStyle(
-                              color: accent, fontWeight: FontWeight.bold)),
+                      Text('$precio €/mes',
+                          style: const TextStyle(color: accent, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
 
-                /* -------- Descripción -------- */
+                /* -------- descripción -------- */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   child: Column(
@@ -269,23 +286,63 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                       const Text('Descripción',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text(piso['descripcion'] ?? '',
-                          style: const TextStyle(color: Colors.grey)),
+                      Text(piso['descripcion'] ?? '', style: const TextStyle(color: Colors.grey)),
                     ],
                   ),
                 ),
 
-                /* -------- Anfitrión + compañeros -------- */
+                /* -------- anfitrión & compañeros -------- */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _userCircle(host, 'Anfitrión'),
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundImage: host['avatarUrl'] != null
+                            ? NetworkImage(host['avatarUrl'])
+                            : const AssetImage('assets/default_avatar.png') as ImageProvider,
+                      ),
                       const SizedBox(width: 16),
-                      ...comps.map((u) => Padding(
-                        padding: const EdgeInsets.only(right: 16),
-                        child: _userCircle(u, 'Compañero'),
-                      )),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(hostName,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          const Text('Anfitrión', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                        ],
+                      ),
+                      const Spacer(),
+                      if (!isMine)                               // ← solo si NO es mío
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: const BoxDecoration(color: accent, shape: BoxShape.circle),
+                          child: IconButton(
+                            icon: const Icon(Icons.chat_bubble_outline,
+                                color: Colors.white, size: 24),
+                            onPressed: () async {
+                              final partnerId = host['id'] as String;
+                              final chatId =
+                              await ChatService.instance.getOrCreateChat(partnerId);
+                              if (!mounted) return;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ChatDetailScreen(
+                                    chatId: chatId,
+                                    partner: {
+                                      'id': host['id'],
+                                      'nombre': host['nombre'],
+                                      'foto_perfil': host['avatarUrl'],
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -295,17 +352,10 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
         },
       ),
 
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _bottomIdx,
-        selectedItemColor: accent,
-        unselectedItemColor: Colors.grey,
-        onTap: _onBottomTap,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home),            label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.message_outlined),label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline),  label: ''),
-        ],
+      /* ---------------- menú inferior ---------------- */
+      bottomNavigationBar: AppMenu(
+        selectedBottomIndex: _selectedBottomIndex,
+        onBottomNavChanged: _onBottomNavChanged,
       ),
     );
   }

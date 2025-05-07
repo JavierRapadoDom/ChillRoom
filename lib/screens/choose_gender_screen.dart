@@ -1,4 +1,4 @@
-import 'package:chillroom/screens/lifestyle_screen.dart';
+// lib/screens/choose_gender_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -10,123 +10,138 @@ class ChooseGenderScreen extends StatefulWidget {
 }
 
 class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
+  /* ---------------- constants ---------------- */
+  static const accent   = Color(0xFFE3A62F);
+  static const _progress = 0.45;        // 45 % del onboarding
+
+  /* ---------------- state ---------------- */
   String? selectedGender;
+  bool    _saving = false;
 
-  void _selectGender(String gender) {
-    setState(() {
-      selectedGender = gender;
-    });
-  }
+  /* ---------------- helpers ---------------- */
+  void _selectGender(String g) => setState(() => selectedGender = g);
 
-  void _continue() async {
+  Future<void> _continue() async {
     if (selectedGender == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Por favor selecciona tu género")),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Por favor selecciona tu género')));
       return;
     }
+
+    setState(() => _saving = true);
 
     final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
-
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error: usuario no identificado")),
-      );
-      return;
-    }
+    final uid      = supabase.auth.currentUser!.id;
 
     try {
-      await supabase.from('usuarios').update({
-        'genero': selectedGender,
-      }).eq('id', user.id);
+      await supabase.from('usuarios').update({'genero': selectedGender}).eq('id', uid);
 
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const LifestyleScreen()),
-      );
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/age');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error al guardar el género: $e")),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error al guardar el género: $e')));
+      setState(() => _saving = false);
     }
   }
 
+  /* ---------------- UI ---------------- */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 16),
-            const Text(
-              "SOY",
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+            /* barra de progreso */
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              height: 4,
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: _progress,
+                child: Container(color: accent),
               ),
             ),
-            const SizedBox(height: 32),
-            _buildOptionButton("Mujer"),
-            const SizedBox(height: 16),
-            _buildOptionButton("Hombre"),
-            const SizedBox(height: 16),
-            _buildOptionButton("Otro"),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _continue,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE3A62F),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                ),
-                child: const Text(
-                  "CONTINUAR",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+
+            /* botón atrás */
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+
+            /* contenido */
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    const Text('SOY',
+                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 32),
+                    _option('Mujer'),
+                    const SizedBox(height: 16),
+                    _option('Hombre'),
+                    const SizedBox(height: 16),
+                    _option('Otro'),
+                  ],
                 ),
               ),
-            )
+            ),
+
+            /* botón continuar */
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _continue,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                  child: _saving
+                      ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
+                      : const Text('CONTINUAR', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildOptionButton(String gender) {
-    final bool isSelected = selectedGender == gender;
+  /* ---------- widget opción ---------- */
+  Widget _option(String g) {
+    final sel = selectedGender == g;
     return GestureDetector(
-      onTap: () => _selectGender(gender),
+      onTap: () => _selectGender(g),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE3A62F) : Colors.transparent,
+          color: sel ? accent : Colors.transparent,
           borderRadius: BorderRadius.circular(32),
           border: Border.all(color: Colors.grey.shade400),
         ),
         child: Center(
-          child: Text(
-            gender,
-            style: TextStyle(
-              color: isSelected ? Colors.white : Colors.black,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
+          child: Text(g,
+              style: TextStyle(
+                  color: sel ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16)),
         ),
       ),
     );
