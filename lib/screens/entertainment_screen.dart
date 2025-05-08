@@ -12,40 +12,47 @@ class EntertainmentScreen extends StatefulWidget {
 
 class _EntertainmentScreenState extends State<EntertainmentScreen> {
   /* ───────── CONST ───────── */
-  static const accent   = Color(0xFFE3A62F);
-  static const _progress = 0.85;          // 85 % del proceso
+  static const accent    = Color(0xFFE3A62F);
+  static const _progress = 0.85;        // 85 % del onboarding
 
-  final List<String> entertainmentOptions = [
-    'Videojuegos', 'Series', 'Películas',  'Lectura',
-    'Anime',       'Documentales', 'Música', 'Arte',
-  ];
-  final List<String> selectedEntertainment = [];
+  /// Entretenimiento → Icono
+  final _options = <String, IconData>{
+    'Videojuegos' : Icons.sports_esports,
+    'Series'      : Icons.tv,
+    'Películas'   : Icons.movie,
+    'Teatro'      : Icons.theater_comedy,
+    'Lectura'     : Icons.menu_book,
+    'Podcasts'    : Icons.podcasts,          // requiere Material 3 (disponible desde Flutter 3.13)
+    'Música'      : Icons.music_note,
+  };
+
+  final List<String> _selected = [];
 
   /* ───────── LOGIC ───────── */
   void _toggle(String item) =>
-      setState(() => selectedEntertainment.contains(item)
-          ? selectedEntertainment.remove(item)
-          : selectedEntertainment.add(item));
+      setState(() => _selected.contains(item) ? _selected.remove(item) : _selected.add(item));
 
   Future<void> _continue() async {
-    if (selectedEntertainment.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Selecciona al menos una opción')));
+    if (_selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos una opción')),
+      );
       return;
     }
 
     final supabase = Supabase.instance.client;
     final user     = supabase.auth.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Error: usuario no identificado')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: usuario no identificado')),
+      );
       return;
     }
 
     try {
       await supabase
           .from('perfiles')
-          .update({'entretenimiento': selectedEntertainment})
+          .update({'entretenimiento': _selected})
           .eq('usuario_id', user.id);
 
       if (!mounted) return;
@@ -66,9 +73,8 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            /* Barra de progreso */
+            // barra de progreso
             Container(
               height: 4,
               margin: const EdgeInsets.only(top: 8),
@@ -79,31 +85,46 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
               ),
             ),
 
-            /* Flecha atrás */
-            IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.grey),
-              onPressed: () => Navigator.pop(context),
+            // flecha atrás
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.grey),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
 
-            /* Contenido */
+            /* ---------- CONTENIDO ---------- */
             Expanded(
-              child: Padding(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 8),
-                    const Text('Me gusta',
-                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'ENTRETENIMIENTO',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Selecciona al menos una opción',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                     const SizedBox(height: 24),
 
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: entertainmentOptions.map(_chip).toList(),
+                    // chips centrados
+                    Center(
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: _options.entries
+                            .map((e) => _chip(e.key, e.value))
+                            .toList(),
+                      ),
                     ),
 
-                    const Spacer(),
+                    const SizedBox(height: 48),
 
                     SizedBox(
                       width: double.infinity,
@@ -111,12 +132,15 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
                         onPressed: _continue,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: accent,
-                          foregroundColor: Colors.white,          // texto blanco
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24)),
                         ),
-                        child: const Text('CONTINUAR',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'CONTINUAR',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -131,21 +155,32 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
   }
 
   /* ───────── CHIP ───────── */
-  Widget _chip(String item) {
-    final sel = selectedEntertainment.contains(item);
+  Widget _chip(String label, IconData icon) {
+    final sel = _selected.contains(label);
     return GestureDetector(
-      onTap: () => _toggle(item),
+      onTap: () => _toggle(label),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: sel ? accent : Colors.transparent,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.grey.shade400),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: sel ? accent : Colors.grey.shade400),
         ),
-        child: Text(item,
-            style: TextStyle(
-                color: sel ? Colors.white : Colors.black,
-                fontWeight: FontWeight.bold)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: sel ? Colors.white : accent),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: sel ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
