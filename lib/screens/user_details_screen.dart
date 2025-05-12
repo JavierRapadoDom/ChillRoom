@@ -1,4 +1,3 @@
-// lib/screens/user_details_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -12,6 +11,7 @@ import 'profile_screen.dart';
 
 class UserDetailsScreen extends StatefulWidget {
   final String userId;
+
   const UserDetailsScreen({super.key, required this.userId});
 
   @override
@@ -19,17 +19,16 @@ class UserDetailsScreen extends StatefulWidget {
 }
 
 class _UserDetailsScreenState extends State<UserDetailsScreen> {
-
   static const colorPrincipal = Color(0xFFE3A62F);
   final supabase = Supabase.instance.client;
 
-  /* ---------- estado ---------- */
+  /*  estado  */
   late Future<Map<String, dynamic>> _futureDatosUsuario;
   int seleccionMenuInferior = -1;
 
-  /* ---------- carrusel ---------- */
-  final _ctrlPage     = PageController();
-  int   _fotoActual = 0;
+  /*  carrusel  */
+  final _ctrlPage = PageController();
+  int _fotoActual = 0;
 
   @override
   void initState() {
@@ -38,9 +37,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
   }
 
   Future<Map<String, dynamic>> _cargarUsuario() async {
-    final row = await supabase
-        .from('usuarios')
-        .select(r'''
+    final row =
+        await supabase
+            .from('usuarios')
+            .select(r'''
           id,
           nombre,
           edad,
@@ -52,20 +52,15 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
             fotos
           )
         ''')
-        .eq('id', widget.userId)
-        .single();
+            .eq('id', widget.userId)
+            .single();
 
     final u = Map<String, dynamic>.from(row as Map);
     final p = u['perfiles'] as Map<String, dynamic>? ?? {};
 
     final fotos = List<String>.from(p['fotos'] ?? []);
-    final avatar = fotos.isNotEmpty
-        ? (fotos.first.startsWith('http')
-        ? fotos.first
-        : supabase.storage
-        .from('profile.photos')
-        .getPublicUrl(fotos.first))
-        : null;
+    final avatar =
+        fotos.isNotEmpty ? (fotos.first.startsWith('http') ? fotos.first : supabase.storage.from('profile.photos').getPublicUrl(fotos.first)) : null;
 
     final intereses = <String>[
       ...List<String>.from(p['estilo_vida'] ?? []),
@@ -74,21 +69,17 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     ];
 
     // Piso publicado (si tiene)
-    final flat = await supabase
-        .from('publicaciones_piso')
-        .select('id, direccion, precio')
-        .eq('anfitrion_id', widget.userId)
-        .maybeSingle();
+    final flat = await supabase.from('publicaciones_piso').select('id, direccion, precio').eq('anfitrion_id', widget.userId).maybeSingle();
 
     return {
-      'id'        : u['id'],
-      'nombre'    : u['nombre'],
-      'edad'      : u['edad'],
-      'biografia' : p['biografia'] ?? '',
-      'fotos'     : fotos,
-      'avatarUrl' : avatar,
-      'intereses' : intereses,
-      'flat'      : flat,
+      'id': u['id'],
+      'nombre': u['nombre'],
+      'edad': u['edad'],
+      'biografia': p['biografia'] ?? '',
+      'fotos': fotos,
+      'avatarUrl': avatar,
+      'intereses': intereses,
+      'flat': flat,
     };
   }
 
@@ -97,10 +88,18 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
 
     Widget? dest;
     switch (idx) {
-      case 0: dest = const HomeScreen();      break;
-      case 1: dest = const FavoritesScreen(); break;
-      case 2: dest = const MessagesScreen();  break;
-      case 3: dest = const ProfileScreen();   break;
+      case 0:
+        dest = const HomeScreen();
+        break;
+      case 1:
+        dest = const FavoritesScreen();
+        break;
+      case 2:
+        dest = const MessagesScreen();
+        break;
+      case 3:
+        dest = const ProfileScreen();
+        break;
     }
     if (dest != null) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest!));
@@ -118,8 +117,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         leading: const BackButton(color: Colors.black),
-        title: const Text('ChillRoom',
-            style: TextStyle(color: colorPrincipal, fontWeight: FontWeight.bold, fontSize: 20)),
+        title: const Text('ChillRoom', style: TextStyle(color: colorPrincipal, fontWeight: FontWeight.bold, fontSize: 20)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
@@ -135,11 +133,11 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
             return Center(child: Text('Error: ${snap.error}'));
           }
 
-          final d          = snap.data!;
-          final fotos      = d['fotos'] as List<String>;
-          final intereses  = d['intereses'] as List<String>;
-          final flat       = d['flat'] as Map<String, dynamic>?;
-          final isMe       = d['id'] == myId;
+          final d = snap.data!;
+          final fotos = d['fotos'] as List<String>;
+          final intereses = d['intereses'] as List<String>;
+          final flat = d['flat'] as Map<String, dynamic>?;
+          final isMe = d['id'] == myId;
 
           /* ------------ UI ------------ */
           return SingleChildScrollView(
@@ -160,18 +158,15 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           itemCount: fotos.isEmpty ? 1 : fotos.length,
                           itemBuilder: (_, i) {
                             if (fotos.isEmpty) {
-                              return Container(
-                                color: Colors.grey[200],
-                                child: const Icon(Icons.person, size: 100, color: Colors.grey),
-                              );
+                              return Container(color: Colors.grey[200], child: const Icon(Icons.person, size: 100, color: Colors.grey));
                             }
                             final raw = fotos[i];
-                            final url = raw.startsWith('http')
-                                ? raw
-                                : supabase.storage.from('profile.photos').getPublicUrl(raw);
-                            return Image.network(url, fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    Container(color: Colors.grey[300], child: const Icon(Icons.image)));
+                            final url = raw.startsWith('http') ? raw : supabase.storage.from('profile.photos').getPublicUrl(raw);
+                            return Image.network(
+                              url,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(color: Colors.grey[300], child: const Icon(Icons.image)),
+                            );
                           },
                         ),
                       ),
@@ -180,18 +175,14 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           alignment: Alignment.centerLeft,
                           child: IconButton(
                             icon: const Icon(Icons.chevron_left, size: 32, color: Colors.white),
-                            onPressed: () => _ctrlPage.previousPage(
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut),
+                            onPressed: () => _ctrlPage.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut),
                           ),
                         ),
                         Align(
                           alignment: Alignment.centerRight,
                           child: IconButton(
                             icon: const Icon(Icons.chevron_right, size: 32, color: Colors.white),
-                            onPressed: () => _ctrlPage.nextPage(
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut),
+                            onPressed: () => _ctrlPage.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut),
                           ),
                         ),
                         Positioned(
@@ -202,14 +193,11 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: List.generate(
                               fotos.length,
-                                  (i) => Container(
+                              (i) => Container(
                                 margin: const EdgeInsets.symmetric(horizontal: 3),
                                 width: 8,
                                 height: 8,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: i == _fotoActual ? colorPrincipal : Colors.white54,
-                                ),
+                                decoration: BoxDecoration(shape: BoxShape.circle, color: i == _fotoActual ? colorPrincipal : Colors.white54),
                               ),
                             ),
                           ),
@@ -221,66 +209,57 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 const SizedBox(height: 16),
 
                 /*  nombre / edad  */
-                Text('${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                Text('${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
 
                 /*  biografía */
                 if ((d['biografia'] as String).isNotEmpty) ...[
-                  const Text('Biografía',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Text('Biografía', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(d['biografia'], style: TextStyle(color: Colors.grey[700])),
                   const SizedBox(height: 20),
                 ],
 
                 /*  piso  */
-                const Text('Piso',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text('Piso', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 flat == null
-                    ? Text('${d['nombre']} aún no ha publicado piso.',
-                    style: TextStyle(color: Colors.grey[600]))
+                    ? Text('${d['nombre']} aún no ha publicado piso.', style: TextStyle(color: Colors.grey[600]))
                     : Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(flat['direccion'],
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text('${flat['precio']} €/mes',
-                          style: const TextStyle(color: colorPrincipal)),
-                      TextButton(
-                        onPressed: () => Navigator.pushNamed(context, '/flat-detail',
-                            arguments: flat['id']),
-                        child: const Text('Ver piso'),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(flat['direccion'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text('${flat['precio']} €/mes', style: const TextStyle(color: colorPrincipal)),
+                          TextButton(
+                            onPressed: () => Navigator.pushNamed(context, '/flat-detail', arguments: flat['id']),
+                            child: const Text('Ver piso'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
                 const SizedBox(height: 20),
 
                 /*  intereses  */
                 if (intereses.isNotEmpty) ...[
-                  const Text('Intereses',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Text('Intereses', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: intereses
-                        .map((i) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                          color: colorPrincipal, borderRadius: BorderRadius.circular(20)),
-                      child: Text(i, style: const TextStyle(color: Colors.white)),
-                    ))
-                        .toList(),
+                    children:
+                        intereses
+                            .map(
+                              (i) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(color: colorPrincipal, borderRadius: BorderRadius.circular(20)),
+                                child: Text(i, style: const TextStyle(color: Colors.white)),
+                              ),
+                            )
+                            .toList(),
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -289,21 +268,17 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 if (!isMe)
                   ElevatedButton.icon(
                     onPressed: () async {
-                      final chatId =
-                      await ChatService.instance.obtenerOCrearChat(widget.userId);
+                      final chatId = await ChatService.instance.obtenerOCrearChat(widget.userId);
                       if (!mounted) return;
 
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ChatDetailScreen(
-                            chatId: chatId,
-                            companero: {
-                              'id'          : widget.userId,
-                              'nombre'      : d['nombre'],
-                              'foto_perfil' : d['avatarUrl'],
-                            },
-                          ),
+                          builder:
+                              (_) => ChatDetailScreen(
+                                chatId: chatId,
+                                companero: {'id': widget.userId, 'nombre': d['nombre'], 'foto_perfil': d['avatarUrl']},
+                              ),
                         ),
                       );
                     },
@@ -313,8 +288,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                       backgroundColor: colorPrincipal,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape:
-                      RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     ),
                   ),
               ],
@@ -324,10 +298,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       ),
 
       /*  menú inferior  */
-      bottomNavigationBar: AppMenu(
-        seleccionMenuInferior: seleccionMenuInferior,
-        cambiarMenuInferior: _cambiarMenuInferior,
-      ),
+      bottomNavigationBar: AppMenu(seleccionMenuInferior: seleccionMenuInferior, cambiarMenuInferior: _cambiarMenuInferior),
     );
   }
 }

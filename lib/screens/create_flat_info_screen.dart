@@ -10,14 +10,14 @@ class CreateFlatInfoScreen extends StatefulWidget {
 
 class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _streetCtrl = TextEditingController();
-  final _postalCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
+  final _ctrlCalle = TextEditingController();
+  final _ctrlCodPostal = TextEditingController();
+  final _ctrlDesc = TextEditingController();
 
-  String? _province;  // ahora null por defecto
-  String _country = 'España';
+  String? _provincia;
+  String _pais = 'España';
 
-  static const List<String> _provinces = [
+  static const List<String> _lstProvincias = [
     "Álava","Albacete","Alicante","Almería","Asturias","Ávila","Badajoz","Barcelona",
     "Burgos","Cáceres","Cádiz","Cantabria","Castellón","Ciudad Real","Córdoba","La Coruña",
     "Cuenca","Gerona","Granada","Guadalajara","Guipúzcoa","Huelva","Huesca","Islas Baleares",
@@ -26,27 +26,27 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
     "Sevilla","Soria","Tarragona","Teruel","Toledo","Valencia","Valladolid","Vizcaya","Zamora","Zaragoza"
   ];
 
-  final _countries = ['España', 'Francia', 'Italia'];
+  final _paises = ['España', 'Francia', 'Italia'];
 
   @override
   void dispose() {
-    _streetCtrl.dispose();
-    _postalCtrl.dispose();
-    _descCtrl.dispose();
+    _ctrlCalle.dispose();
+    _ctrlCodPostal.dispose();
+    _ctrlDesc.dispose();
     super.dispose();
   }
 
-  void _next() {
+  void _continuar() {
     if (_formKey.currentState!.validate()) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => CreateFlatDetailsScreen(
-            calle: _streetCtrl.text.trim(),
-            provincia: _province!,
-            pais: _country,
-            postal: _postalCtrl.text.trim(),
-            descripcion: _descCtrl.text.trim(),
+            calle: _ctrlCalle.text.trim(),
+            provincia: _provincia!,
+            pais: _pais,
+            postal: _ctrlCodPostal.text.trim(),
+            descripcion: _ctrlDesc.text.trim(),
           ),
         ),
       );
@@ -81,7 +81,7 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
               // Calle
               const Text('Calle'),
               TextFormField(
-                controller: _streetCtrl,
+                controller: _ctrlCalle,
                 decoration: const InputDecoration(
                   hintText: 'Ej. Calle Benito Pérez ...',
                   enabledBorder: UnderlineInputBorder(),
@@ -93,12 +93,12 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
               // Provincia
               const Text('Provincia'),
               DropdownButtonFormField<String>(
-                value: _province,
+                value: _provincia,
                 hint: const Text('Selecciona una provincia'),
-                items: _provinces
+                items: _lstProvincias
                     .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                     .toList(),
-                onChanged: (v) => setState(() => _province = v),
+                onChanged: (v) => setState(() => _provincia = v),
                 validator: (v) =>
                 v == null ? 'Debes seleccionar una provincia' : null,
               ),
@@ -113,11 +113,11 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
                       children: [
                         const Text('País'),
                         DropdownButtonFormField<String>(
-                          value: _country,
-                          items: _countries
+                          value: _pais,
+                          items: _paises
                               .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                               .toList(),
-                          onChanged: (v) => setState(() => _country = v!),
+                          onChanged: (v) => setState(() => _pais = v!),
                         ),
                       ],
                     ),
@@ -129,7 +129,7 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
                       children: [
                         const Text('Código postal'),
                         TextFormField(
-                          controller: _postalCtrl,
+                          controller: _ctrlCodPostal,
                           decoration: const InputDecoration(
                             hintText: 'Ej. 37008',
                             enabledBorder: UnderlineInputBorder(),
@@ -148,7 +148,7 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
               // Descripción
               const Text('Descripción'),
               TextFormField(
-                controller: _descCtrl,
+                controller: _ctrlDesc,
                 decoration: const InputDecoration(
                   hintText: 'Añade detalles del piso...',
                   enabledBorder: UnderlineInputBorder(),
@@ -160,7 +160,7 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
 
               const Spacer(),
               ElevatedButton(
-                onPressed: _next,
+                onPressed: _continuar,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: accent,
                   foregroundColor: Colors.white,
