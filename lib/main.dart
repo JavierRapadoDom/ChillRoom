@@ -11,7 +11,6 @@ import 'screens/register_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/piso_details_screen.dart';
 
-/* ─────────── Builder SIN animación ─────────── */
 class NoAnimationPageTransitionsBuilder extends PageTransitionsBuilder {
   const NoAnimationPageTransitionsBuilder();
 
@@ -23,7 +22,7 @@ class NoAnimationPageTransitionsBuilder extends PageTransitionsBuilder {
       Animation<double> secondaryAnimation,
       Widget child,
       ) =>
-      child; // ← sin transiciones
+      child;
 }
 
 void main() async {
@@ -61,7 +60,7 @@ class MyApp extends StatelessWidget {
 
       initialRoute: initialRoute,
 
-      // ---------- rutas ----------
+      //  rutas
       routes: {
         '/register'    : (_) => RegisterScreen(),
         '/login'       : (_) => LoginScreen(),
@@ -72,7 +71,7 @@ class MyApp extends StatelessWidget {
         '/age'         : (_) => const EdadScreen(),
       },
 
-      // ---------- rutas dinámicas ----------
+      //  rutas dinámicas
       onGenerateRoute: (settings) {
         if (settings.name == '/flat-detail') {
           final id = settings.arguments as String?;

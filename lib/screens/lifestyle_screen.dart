@@ -1,4 +1,3 @@
-// lib/screens/lifestyle_screen.dart
 import 'package:chillroom/screens/sports_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,11 +11,11 @@ class LifestyleScreen extends StatefulWidget {
 
 class _LifestyleScreenState extends State<LifestyleScreen> {
   /* ---------- constantes ---------- */
-  static const accent    = Color(0xFFE3A62F);
-  static const _progress = 0.70;          // 70 %
+  static const colorPrincipal    = Color(0xFFE3A62F);
+  static const _progress = 0.70;
 
   /// Texto → icono
-  final _options = <String, IconData>{
+  final _opcionesAElegir = <String, IconData>{
     'Trabajo en casa' : Icons.home_work_outlined,
     'Madrugador'      : Icons.wb_sunny_outlined,
     'Nocturno'        : Icons.bedtime_outlined,
@@ -25,14 +24,14 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     'Jardinería'      : Icons.grass_outlined,
   };
 
-  final List<String> _selected = [];
+  final List<String> _lstSeleccionados = [];
 
   /* ---------- lógica ---------- */
-  void _toggle(String label) => setState(() =>
-  _selected.contains(label) ? _selected.remove(label) : _selected.add(label));
+  void _toggleGustos(String label) => setState(() =>
+  _lstSeleccionados.contains(label) ? _lstSeleccionados.remove(label) : _lstSeleccionados.add(label));
 
-  Future<void> _continue() async {
-    if (_selected.isEmpty) {
+  Future<void> _continuar() async {
+    if (_lstSeleccionados.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona al menos un estilo de vida')),
       );
@@ -49,7 +48,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
 
     try {
       await supabase.from('perfiles')
-          .update({'estilo_vida': _selected})
+          .update({'estilo_vida': _lstSeleccionados})
           .eq('usuario_id', user.id);
 
       if (!mounted) return;
@@ -61,7 +60,6 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     }
   }
 
-  /* ---------- UI ---------- */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,7 +74,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
             // flecha atrás
@@ -111,8 +109,8 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                       child: Wrap(
                         spacing: 12,
                         runSpacing: 12,
-                        children: _options.entries
-                            .map((e) => _chip(e.key, e.value))
+                        children: _opcionesAElegir.entries
+                            .map((e) => _wgtChip(e.key, e.value))
                             .toList(),
                       ),
                     ),
@@ -121,9 +119,9 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _continue,
+                        onPressed: _continuar,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
+                          backgroundColor: colorPrincipal,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -144,22 +142,21 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     );
   }
 
-  /* ---------- chip ---------- */
-  Widget _chip(String label, IconData icon) {
-    final sel = _selected.contains(label);
+  Widget _wgtChip(String label, IconData icon) {
+    final sel = _lstSeleccionados.contains(label);
     return GestureDetector(
-      onTap: () => _toggle(label),
+      onTap: () => _toggleGustos(label),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: sel ? accent : Colors.transparent,
+          color: sel ? colorPrincipal : Colors.transparent,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: sel ? accent : Colors.grey.shade400),
+          border: Border.all(color: sel ? colorPrincipal : Colors.grey.shade400),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: sel ? Colors.white : accent),
+            Icon(icon, size: 18, color: sel ? Colors.white : colorPrincipal),
             const SizedBox(width: 6),
             Text(
               label,

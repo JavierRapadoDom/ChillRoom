@@ -1,24 +1,18 @@
 import 'package:chillroom/services/profile_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-
 class AuthService {
   final supabase = Supabase.instance.client;
 
-  Future<String?> signUp(String name, String email, String password) async {
+  Future<String?> crearCuenta(String nombre, String correo, String contrasena) async {
     try {
-      // 1) Registro en Supabase Auth
-      final response = await supabase.auth.signUp(email: email, password: password);
+      // 1. Registro en Supabase Auth
+      final response = await supabase.auth.signUp(email: correo, password: contrasena);
       final user = response.user;
       if (user == null) return "No se pudo crear la cuenta";
 
-      // 2) Inserción en tabla 'usuarios'
-      await supabase.from('usuarios').insert({
-        'id': user.id,
-        'nombre': name,
-        'email': email.trim(),
-        'rol': 'explorando',  // o el rol por defecto que elijas
-      });
+      // 2. Insertarlo en tabla 'usuarios'
+      await supabase.from('usuarios').insert({'id': user.id, 'nombre': nombre, 'email': correo.trim(), 'rol': 'explorando'});
       await supabase.from('perfiles').insert({
         'usuario_id': response.user!.id,
         'biografia': '',
@@ -26,23 +20,19 @@ class AuthService {
         'deportes': <String>[],
         'entretenimiento': <String>[],
         'fotos': <String>[],
-        'created_at': DateTime.now().toIso8601String(),  // si tu tabla lo requiere
+        'created_at': DateTime.now().toIso8601String(),
       });
 
-      // ────────────────↓↓↓↓↓↓ LLAMADA NUEVA ↓↓↓↓↓↓────────────────
-      // 3) Asegurar fila en `perfiles` para este user.id
-      await ProfileService().ensureProfile(user.id);
-      // ───────────────────────────────────────────────────────────
+      // 3. Asegurar fila en 'perfiles' para este user.id
+      await ProfileService().asegurarPerfil(user.id);
 
-      return null; // registro exitoso
+      return null; // registro correcto
     } catch (e) {
       return "Error al registrarse: $e";
     }
   }
 
-
-
-  Future<void> signInWithGoogle() async {
+  Future<void> iniciarSesionGoogle() async {
     try {
       await supabase.auth.signInWithOAuth(OAuthProvider.google);
     } catch (e) {
@@ -50,12 +40,9 @@ class AuthService {
     }
   }
 
-  Future<String?> signInWithEmail(String email, String password) async {
+  Future<String?> iniciarSesionEmail(String correo, String contrasena) async {
     try {
-      final AuthResponse response = await supabase.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
+      final AuthResponse response = await supabase.auth.signInWithPassword(email: correo, password: contrasena);
       if (response.user != null) return null;
       return "Credenciales incorrectas";
     } catch (e) {
@@ -63,11 +50,11 @@ class AuthService {
     }
   }
 
-  Future<void> signOut() async {
+  Future<void> cerrarSesion() async {
     await supabase.auth.signOut();
   }
 
-  User? getCurrentUser() {
+  User? obtenerUsuarioActual() {
     return supabase.auth.currentUser;
   }
 }

@@ -11,24 +11,24 @@ class EnterNameScreen extends StatefulWidget {
 }
 
 class _EnterNameScreenState extends State<EnterNameScreen> {
-  /* ---------------- constants ---------------- */
-  static const accent   = Color(0xFFE3A62F);
-  static const _progress = 0.25;            // 25 % del onboarding
+  /* ---------------- constantes ---------------- */
+  static const colorPrincipal   = Color(0xFFE3A62F);
+  static const _progress = 0.25;
 
   /* ---------------- state ---------------- */
-  final TextEditingController _nameCtrl = TextEditingController();
-  bool _saving = false;
+  final TextEditingController _ctrlNombre = TextEditingController();
+  bool _guardando = false;
 
   /* ---------------- actions ---------------- */
-  Future<void> _onContinue() async {
-    final name = _nameCtrl.text.trim();
+  Future<void> _onContinuar() async {
+    final name = _ctrlNombre.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Por favor introduce tu nombre')));
       return;
     }
 
-    setState(() => _saving = true);
+    setState(() => _guardando = true);
 
     final supabase = Supabase.instance.client;
     final uid      = supabase.auth.currentUser!.id;          // ← no null
@@ -45,14 +45,14 @@ class _EnterNameScreenState extends State<EnterNameScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error: $e')));
-      setState(() => _saving = false);
+      setState(() => _guardando = false);
     }
   }
 
   /* ---------------- lifecycle ---------------- */
   @override
   void dispose() {
-    _nameCtrl.dispose();
+    _ctrlNombre.dispose();
     super.dispose();
   }
 
@@ -71,7 +71,7 @@ class _EnterNameScreenState extends State<EnterNameScreen> {
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
 
@@ -98,7 +98,7 @@ class _EnterNameScreenState extends State<EnterNameScreen> {
                     ),
                     const SizedBox(height: 32),
                     TextField(
-                      controller: _nameCtrl,
+                      controller: _ctrlNombre,
                       textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(
                         hintText: 'Introduce tu nombre',
@@ -124,13 +124,13 @@ class _EnterNameScreenState extends State<EnterNameScreen> {
                 width: double.infinity,
                 height: 46,
                 child: ElevatedButton(
-                  onPressed: _saving ? null : _onContinue,
+                  onPressed: _guardando ? null : _onContinuar,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: accent,
+                    backgroundColor: colorPrincipal,
                     foregroundColor: Colors.white,      // texto blanco
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                   ),
-                  child: _saving
+                  child: _guardando
                       ? const SizedBox(
                       width: 22,
                       height: 22,

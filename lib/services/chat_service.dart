@@ -5,25 +5,25 @@ class ChatService {
   static final instance = ChatService._();
   final _sb = Supabase.instance.client;
 
-  /// devuelve el `chat.id` (crea uno si aún no existe)
-  Future<String> getOrCreateChat(String otherUserId) async {
+  // devuelve el 'chat.id' (crea uno si aún no existe)
+  Future<String> obtenerOCrearChat(String otroUsuarioId) async {
     final me = _sb.auth.currentUser!.id;
 
-    // 1) existe?
-    final existing = await _sb
+    // 1. existe?
+    final existe = await _sb
         .from('chats')
         .select('id')
-        .or('and(usuario1_id.eq.$me,usuario2_id.eq.$otherUserId),and(usuario1_id.eq.$otherUserId,usuario2_id.eq.$me)')
+        .or('and(usuario1_id.eq.$me,usuario2_id.eq.$otroUsuarioId),and(usuario1_id.eq.$otroUsuarioId,usuario2_id.eq.$me)')
         .maybeSingle();
 
-    if (existing != null) return existing['id'] as String;
+    if (existe != null) return existe['id'] as String;
 
     // 2) crear
     final inserted = await _sb
         .from('chats')
         .insert({
       'usuario1_id': me,
-      'usuario2_id': otherUserId,
+      'usuario2_id': otroUsuarioId,
     })
         .select('id')
         .single();
@@ -31,8 +31,8 @@ class ChatService {
     return inserted['id'] as String;
   }
 
-  /// stream en vivo de mensajes ordenados por fecha ASC
-  Stream<List<Map<String, dynamic>>> messageStream(String chatId) =>
+  // stream en vivo de mensajes ordenados por fecha ascendentemente
+  Stream<List<Map<String, dynamic>>> streamMensajes(String chatId) =>
       _sb
           .from('mensajes')
           .stream(primaryKey: ['id'])
@@ -40,8 +40,8 @@ class ChatService {
           .order('created_at')
           .map((rows) => rows.cast<Map<String, dynamic>>());
 
-  /// enviar texto
-  Future<void> send(String chatId, String receptorId, String texto) async {
+  // enviar texto
+  Future<void> enviarMensaje(String chatId, String receptorId, String texto) async {
     final me = _sb.auth.currentUser!.id;
     await _sb.from('mensajes').insert({
       'chat_id': chatId,
@@ -51,8 +51,8 @@ class ChatService {
     });
   }
 
-  /// marcar todos como vistos
-  Future<void> markAsRead(String chatId) async {
+  // marcar todos como vistos
+  Future<void> marcarComoVisto(String chatId) async {
     final me = _sb.auth.currentUser!.id;
     await _sb
         .from('mensajes')

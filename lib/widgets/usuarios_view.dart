@@ -16,17 +16,16 @@ class _UsuariosViewState extends State<UsuariosView> {
   final _supabase = Supabase.instance.client;
   late Future<List<Map<String, dynamic>>> _futureUsers;
 
-  int _currentIndex = 0;
+  int _seleccionActual = 0;
   AsyncSnapshot<List<Map<String, dynamic>>>? _futureSnapshot;
 
   @override
   void initState() {
     super.initState();
-    _futureUsers = _loadUsers();
+    _futureUsers = _cargarUsuarios();
   }
 
-  /* ──────────────── DATA ──────────────── */
-  Future<List<Map<String, dynamic>>> _loadUsers() async {
+  Future<List<Map<String, dynamic>>> _cargarUsuarios() async {
     final me = _supabase.auth.currentUser!;
 
     final rows = await _supabase
@@ -45,9 +44,7 @@ class _UsuariosViewState extends State<UsuariosView> {
         ''')
         .neq('id', me.id);
 
-    final users = (rows as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    final users = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
     for (final u in users) {
       final p = u['perfiles'] as Map<String, dynamic>? ?? {};
@@ -61,64 +58,44 @@ class _UsuariosViewState extends State<UsuariosView> {
       ];
 
       final fotos = List<String>.from(p['fotos'] ?? []);
-      u['foto'] = fotos.isNotEmpty
-          ? (fotos.first.startsWith('http')
-          ? fotos.first
-          : _supabase.storage
-          .from('profile.photos')
-          .getPublicUrl(fotos.first))
-          : null;
+      u['foto'] =
+          fotos.isNotEmpty
+              ? (fotos.first.startsWith('http') ? fotos.first : _supabase.storage.from('profile.photos').getPublicUrl(fotos.first))
+              : null;
     }
 
     return users;
   }
 
-  /* ──────────────── GETTERS ─────────────── */
-  List<Map<String, dynamic>> get _users =>
-      (_futureSnapshot?.data ?? <Map<String, dynamic>>[]);
+  List<Map<String, dynamic>> get _users => (_futureSnapshot?.data ?? <Map<String, dynamic>>[]);
 
-  /* ──────────────── ACCIONES ──────────────── */
   void _descartar() {
     setState(() {
-      if (_currentIndex < _users.length - 1) _currentIndex++;
+      if (_seleccionActual < _users.length - 1) _seleccionActual++;
     });
   }
 
   Future<void> _contactar() async {
-    final u            = _users[_currentIndex];
-    final partnerId    = u['id']     as String;
-    final partnerName  = u['nombre'] as String;
+    final u = _users[_seleccionActual];
+    final partnerId = u['id'] as String;
+    final partnerName = u['nombre'] as String;
 
-    final chatId =
-    await ChatService.instance.getOrCreateChat(partnerId);
+    final chatId = await ChatService.instance.obtenerOCrearChat(partnerId);
 
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChatDetailScreen(
-          chatId : chatId,
-          partner: {
-            'id'          : partnerId,
-            'nombre'      : partnerName,
-            'foto_perfil' : u['foto'],
-          },
-        ),
+        builder: (_) => ChatDetailScreen(chatId: chatId, companero: {'id': partnerId, 'nombre': partnerName, 'foto_perfil': u['foto']}),
       ),
     );
   }
 
   void _irADetalle() {
-    final u = _users[_currentIndex];
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => UserDetailsScreen(userId: u['id'] as String),
-      ),
-    );
+    final u = _users[_seleccionActual];
+    Navigator.push(context, MaterialPageRoute(builder: (_) => UserDetailsScreen(userId: u['id'] as String)));
   }
 
-  /* ──────────────── UI ──────────────── */
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -136,7 +113,7 @@ class _UsuariosViewState extends State<UsuariosView> {
         if (users.isEmpty) {
           return const Center(child: Text('No hay otros usuarios disponibles.'));
         }
-        final user = users[_currentIndex];
+        final user = users[_seleccionActual];
 
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -144,43 +121,35 @@ class _UsuariosViewState extends State<UsuariosView> {
             children: [
               const SizedBox(height: 12),
               const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Usuarios acordes a tus gustos',
-                      style: TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold))),
+                alignment: Alignment.centerLeft,
+                child: Text('Usuarios acordes a tus gustos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
               const SizedBox(height: 12),
 
-              /* ---------- TARJETA ---------- */
+              // Tarjeta de usuario
               Expanded(
                 child: InkWell(
                   borderRadius: BorderRadius.circular(16),
                   onTap: _irADetalle,
                   child: Card(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     elevation: 5,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          user['foto'] != null
-                              ? Image.network(user['foto'], fit: BoxFit.cover)
-                              : Container(color: Colors.grey[200]),
+                          user['foto'] != null ? Image.network(user['foto'], fit: BoxFit.cover) : Container(color: Colors.grey[200]),
                           /* gradiente */
                           Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.bottomCenter,
                                 end: Alignment.topCenter,
-                                colors: [
-                                  Colors.black.withOpacity(0.75),
-                                  Colors.transparent,
-                                ],
+                                colors: [Colors.black.withOpacity(0.75), Colors.transparent],
                               ),
                             ),
                           ),
-                          /* overlay info */
                           Positioned(
                             left: 16,
                             right: 16,
@@ -190,45 +159,31 @@ class _UsuariosViewState extends State<UsuariosView> {
                               children: [
                                 Text(
                                   '${user['nombre']}, ${user['edad'] ?? ''}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold),
+                                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                                 ),
                                 const SizedBox(height: 10),
                                 Wrap(
                                   spacing: 6,
                                   runSpacing: 4,
-                                  children: (user['intereses']
-                                  as List<String>)
-                                      .take(6)
-                                      .map(
-                                        (i) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFE3A62F),
-                                        borderRadius:
-                                        BorderRadius.circular(20),
-                                      ),
-                                      child: Text(i,
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12)),
-                                    ),
-                                  )
-                                      .toList(),
+                                  children:
+                                      (user['intereses'] as List<String>)
+                                          .take(6)
+                                          .map(
+                                            (i) => Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                              decoration: BoxDecoration(color: const Color(0xFFE3A62F), borderRadius: BorderRadius.circular(20)),
+                                              child: Text(i, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                            ),
+                                          )
+                                          .toList(),
                                 ),
                                 const SizedBox(height: 8),
-                                if ((user['biografia'] as String)
-                                    .isNotEmpty)
+                                if ((user['biografia'] as String).isNotEmpty)
                                   Text(
                                     user['biografia'],
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 13),
+                                    style: const TextStyle(color: Colors.white70, fontSize: 13),
                                   ),
                               ],
                             ),
@@ -256,8 +211,7 @@ class _UsuariosViewState extends State<UsuariosView> {
                     backgroundColor: const Color(0xFFE3A62F),
                     elevation: 4,
                     onPressed: _contactar,
-                    child:
-                    const Icon(Icons.chevron_right, color: Colors.white),
+                    child: const Icon(Icons.chevron_right, color: Colors.white),
                   ),
                 ],
               ),

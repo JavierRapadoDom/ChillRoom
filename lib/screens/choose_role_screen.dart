@@ -12,36 +12,36 @@ class ChooseRoleScreen extends StatefulWidget {
 class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
   /* ---------- constantes ---------- */
   static const accent = Color(0xFFE3A62F);
-  static const _progress = 0.10;          // ← 20 % del flujo (ajusta si quieres)
+  static const _progress = 0.10;
 
   /* ---------- estado ---------- */
-  String? _selectedRole;
-  bool    _saving = false;
+  String? _rolElegido;
+  bool    _guardando = false;
 
   /* ---------- helpers ---------- */
-  String _roleToEnum(String role) {
-    switch (role) {
+  String _rolAEnum(String rol) {
+    switch (rol) {
       case 'Busco compañeros de piso': return 'busco_compañero';
       case 'Busco piso'               : return 'busco_piso';
       default                         : return 'explorando';
     }
   }
 
-  Future<void> _onContinue() async {
-    if (_selectedRole == null) {
+  Future<void> _onContinuar() async {
+    if (_rolElegido == null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Por favor selecciona un rol')));
       return;
     }
 
-    setState(() => _saving = true);
+    setState(() => _guardando = true);
     final supabase = Supabase.instance.client;
     final user     = supabase.auth.currentUser;
 
     try {
       await supabase
           .from('usuarios')
-          .update({'rol': _roleToEnum(_selectedRole!)})
+          .update({'rol': _rolAEnum(_rolElegido!)})
           .eq('id', user!.id);
 
       if (!mounted) return;
@@ -53,7 +53,7 @@ class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error: $e')));
-      setState(() => _saving = false);
+      setState(() => _guardando = false);
     }
   }
 
@@ -62,8 +62,6 @@ class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-
-      /* evitamos AppBar para coincidir con maqueta  */
       body: SafeArea(
         child: Column(
           children: [
@@ -106,11 +104,11 @@ class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
                         style: TextStyle(color: Colors.grey)),
                     const SizedBox(height: 40),
 
-                    _roleButton('Busco compañeros de piso'),
+                    _btnRol('Busco compañeros de piso'),
                     const SizedBox(height: 16),
-                    _roleButton('Busco piso'),
+                    _btnRol('Busco piso'),
                     const SizedBox(height: 16),
-                    _roleButton('Solo explorando'),
+                    _btnRol('Solo explorando'),
                   ],
                 ),
               ),
@@ -123,13 +121,13 @@ class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
                 width: double.infinity,
                 height: 46,
                 child: ElevatedButton(
-                  onPressed: _saving ? null : _onContinue,
+                  onPressed: _guardando ? null : _onContinuar,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: accent,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(24)),
                   ),
-                  child: _saving
+                  child: _guardando
                       ? const SizedBox(
                       width: 22,
                       height: 22,
@@ -148,10 +146,10 @@ class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
   }
 
   /* ---------- widget opción ---------- */
-  Widget _roleButton(String txt) {
-    final sel = _selectedRole == txt;
+  Widget _btnRol(String txt) {
+    final sel = _rolElegido == txt;
     return GestureDetector(
-      onTap: () => setState(() => _selectedRole = txt),
+      onTap: () => setState(() => _rolElegido = txt),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 18),

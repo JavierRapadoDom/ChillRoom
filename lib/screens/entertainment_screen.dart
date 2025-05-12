@@ -1,4 +1,3 @@
-// lib/screens/entertainment_screen.dart
 import 'package:chillroom/screens/upload_photos_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -11,29 +10,27 @@ class EntertainmentScreen extends StatefulWidget {
 }
 
 class _EntertainmentScreenState extends State<EntertainmentScreen> {
-  /* ───────── CONST ───────── */
-  static const accent    = Color(0xFFE3A62F);
-  static const _progress = 0.85;        // 85 % del onboarding
+  /*  constantes  */
+  static const colorPrincipal    = Color(0xFFE3A62F);
+  static const _progress = 0.85;
 
-  /// Entretenimiento → Icono
-  final _options = <String, IconData>{
+  final _opcionesAElegir = <String, IconData>{
     'Videojuegos' : Icons.sports_esports,
     'Series'      : Icons.tv,
     'Películas'   : Icons.movie,
     'Teatro'      : Icons.theater_comedy,
     'Lectura'     : Icons.menu_book,
-    'Podcasts'    : Icons.podcasts,          // requiere Material 3 (disponible desde Flutter 3.13)
+    'Podcasts'    : Icons.podcasts,
     'Música'      : Icons.music_note,
   };
 
-  final List<String> _selected = [];
+  final List<String> _lstSeleccionados = [];
 
-  /* ───────── LOGIC ───────── */
-  void _toggle(String item) =>
-      setState(() => _selected.contains(item) ? _selected.remove(item) : _selected.add(item));
+  void _toggleGustos(String item) =>
+      setState(() => _lstSeleccionados.contains(item) ? _lstSeleccionados.remove(item) : _lstSeleccionados.add(item));
 
-  Future<void> _continue() async {
-    if (_selected.isEmpty) {
+  Future<void> _continuar() async {
+    if (_lstSeleccionados.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona al menos una opción')),
       );
@@ -52,7 +49,7 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
     try {
       await supabase
           .from('perfiles')
-          .update({'entretenimiento': _selected})
+          .update({'entretenimiento': _lstSeleccionados})
           .eq('usuario_id', user.id);
 
       if (!mounted) return;
@@ -66,7 +63,6 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
     }
   }
 
-  /* ───────── BUILD ───────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -74,14 +70,13 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // barra de progreso
             Container(
               height: 4,
               margin: const EdgeInsets.only(top: 8),
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
 
@@ -94,7 +89,6 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
               ),
             ),
 
-            /* ---------- CONTENIDO ---------- */
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -118,8 +112,8 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
                       child: Wrap(
                         spacing: 12,
                         runSpacing: 12,
-                        children: _options.entries
-                            .map((e) => _chip(e.key, e.value))
+                        children: _opcionesAElegir.entries
+                            .map((e) => _wgtChip(e.key, e.value))
                             .toList(),
                       ),
                     ),
@@ -129,9 +123,9 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _continue,
+                        onPressed: _continuar,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
+                          backgroundColor: colorPrincipal,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -154,22 +148,21 @@ class _EntertainmentScreenState extends State<EntertainmentScreen> {
     );
   }
 
-  /* ───────── CHIP ───────── */
-  Widget _chip(String label, IconData icon) {
-    final sel = _selected.contains(label);
+  Widget _wgtChip(String label, IconData icon) {
+    final sel = _lstSeleccionados.contains(label);
     return GestureDetector(
-      onTap: () => _toggle(label),
+      onTap: () => _toggleGustos(label),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: sel ? accent : Colors.transparent,
+          color: sel ? colorPrincipal : Colors.transparent,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: sel ? accent : Colors.grey.shade400),
+          border: Border.all(color: sel ? colorPrincipal : Colors.grey.shade400),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: sel ? Colors.white : accent),
+            Icon(icon, size: 18, color: sel ? Colors.white : colorPrincipal),
             const SizedBox(width: 6),
             Text(
               label,

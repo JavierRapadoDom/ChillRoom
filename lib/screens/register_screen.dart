@@ -1,4 +1,3 @@
-// lib/screens/register_screen.dart
 import 'package:chillroom/services/auth_service.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -13,28 +12,28 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final AuthService _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
-  final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  final _confirmCtrl = TextEditingController();
-  bool _acceptTerms = false;
-  bool _obscurePass = true;
-  bool _obscureConfirm = true;
+  final _ctrlNombre = TextEditingController();
+  final _ctrlCorreo = TextEditingController();
+  final _ctrlPass = TextEditingController();
+  final _ctrlConfirmar = TextEditingController();
+  bool _aceptarTerms = false;
+  bool _ocultarPass = true;
+  bool _ocultarConfirm = true;
   bool _isLoading = false;
 
-  Future<void> _register() async {
+  Future<void> _registrarUsuario() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_acceptTerms) {
+    if (!_aceptarTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Debes aceptar los términos y condiciones")),
       );
       return;
     }
     setState(() => _isLoading = true);
-    final err = await _authService.signUp(
-      _nameCtrl.text.trim(),
-      _emailCtrl.text.trim(),
-      _passCtrl.text.trim(),
+    final err = await _authService.crearCuenta(
+      _ctrlNombre.text.trim(),
+      _ctrlCorreo.text.trim(),
+      _ctrlPass.text.trim(),
     );
     setState(() => _isLoading = false);
     if (err == null) {
@@ -101,7 +100,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         children: [
                           // Nombre
                           TextFormField(
-                            controller: _nameCtrl,
+                            controller: _ctrlNombre,
                             decoration: InputDecoration(
                               hintText: 'Introduce tu nombre',
                               filled: true,
@@ -125,7 +124,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           const SizedBox(height: 16),
                           // Email
                           TextFormField(
-                            controller: _emailCtrl,
+                            controller: _ctrlCorreo,
                             decoration: InputDecoration(
                               hintText: 'nombre@email.com',
                               filled: true,
@@ -149,8 +148,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           const SizedBox(height: 16),
                           // Contraseña
                           TextFormField(
-                            controller: _passCtrl,
-                            obscureText: _obscurePass,
+                            controller: _ctrlPass,
+                            obscureText: _ocultarPass,
                             decoration: InputDecoration(
                               hintText: 'Crea una contraseña',
                               filled: true,
@@ -158,11 +157,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 14),
                               suffixIcon: IconButton(
-                                icon: Icon(_obscurePass
+                                icon: Icon(_ocultarPass
                                     ? Icons.visibility_off
                                     : Icons.visibility),
                                 onPressed: () => setState(
-                                        () => _obscurePass = !_obscurePass),
+                                        () => _ocultarPass = !_ocultarPass),
                               ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -182,8 +181,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           const SizedBox(height: 16),
                           // Confirmar
                           TextFormField(
-                            controller: _confirmCtrl,
-                            obscureText: _obscureConfirm,
+                            controller: _ctrlConfirmar,
+                            obscureText: _ocultarConfirm,
                             decoration: InputDecoration(
                               hintText: 'Confirma la contraseña',
                               filled: true,
@@ -191,11 +190,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 14),
                               suffixIcon: IconButton(
-                                icon: Icon(_obscureConfirm
+                                icon: Icon(_ocultarConfirm
                                     ? Icons.visibility_off
                                     : Icons.visibility),
                                 onPressed: () => setState(() =>
-                                _obscureConfirm = !_obscureConfirm),
+                                _ocultarConfirm = !_ocultarConfirm),
                               ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -208,7 +207,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 BorderSide(color: Colors.grey.shade300),
                               ),
                             ),
-                            validator: (v) => v != _passCtrl.text
+                            validator: (v) => v != _ctrlPass.text
                                 ? 'Las contraseñas no coinciden'
                                 : null,
                           ),
@@ -220,9 +219,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     Row(
                       children: [
                         Checkbox(
-                          value: _acceptTerms,
+                          value: _aceptarTerms,
                           onChanged: (v) =>
-                              setState(() => _acceptTerms = v!),
+                              setState(() => _aceptarTerms = v!),
                         ),
                         Expanded(
                           child: RichText(
@@ -275,11 +274,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _socialBtn('assets/botonGoogle.png'),
+                        _botonRedes('assets/botonGoogle.png'),
                         const SizedBox(width: 16),
-                        _socialBtn('assets/botonApple.png'),
+                        _botonRedes('assets/botonApple.png'),
                         const SizedBox(width: 16),
-                        _socialBtn('assets/botonFacebook.png'),
+                        _botonRedes('assets/botonFacebook.png'),
                       ],
                     ),
                   ],
@@ -293,7 +292,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _register,
+                  onPressed: _isLoading ? null : _registrarUsuario,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primary,
                     foregroundColor: Colors.white,
@@ -320,7 +319,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _socialBtn(String asset) {
+  Widget _botonRedes(String asset) {
     return GestureDetector(
       onTap: () {},
       child: CircleAvatar(

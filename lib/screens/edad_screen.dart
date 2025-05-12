@@ -11,24 +11,24 @@ class EdadScreen extends StatefulWidget {
 }
 
 class _EdadScreenState extends State<EdadScreen> {
-  /* ---------------- constants ---------------- */
-  static const accent   = Color(0xFFE3A62F);
-  static const _progress = 0.55;        // 55 % del flujo
+  /* ---------------- constantes ---------------- */
+  static const colorPrincipal   = Color(0xFFE3A62F);
+  static const _progress = 0.55;
 
   /* ---------------- controllers ---------------- */
-  final _ageCtrl   = TextEditingController();
+  final _ctrlEdad   = TextEditingController();
   final _formKey   = GlobalKey<FormState>();
   final _supabase  = Supabase.instance.client;
 
-  bool _saving = false;
+  bool _guardando = false;
 
   /* ---------------- continuar ---------------- */
-  Future<void> _onContinue() async {
+  Future<void> _onContinuar() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    setState(() => _saving = true);
+    setState(() => _guardando = true);
     final uid = _supabase.auth.currentUser!.id;
-    final age = int.parse(_ageCtrl.text);
+    final age = int.parse(_ctrlEdad.text);
 
     try {
       await _supabase.from('usuarios').update({'edad': age}).eq('id', uid);
@@ -42,7 +42,7 @@ class _EdadScreenState extends State<EdadScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error: $e')));
-      setState(() => _saving = false);
+      setState(() => _guardando = false);
     }
   }
 
@@ -51,7 +51,7 @@ class _EdadScreenState extends State<EdadScreen> {
   Widget build(BuildContext context) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(2),
-      borderSide: const BorderSide(color: accent, width: 2),
+      borderSide: const BorderSide(color: colorPrincipal, width: 2),
     );
 
     return Scaffold(
@@ -66,7 +66,7 @@ class _EdadScreenState extends State<EdadScreen> {
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
 
@@ -96,7 +96,7 @@ class _EdadScreenState extends State<EdadScreen> {
                       const SizedBox(height: 40),
 
                       TextFormField(
-                        controller: _ageCtrl,
+                        controller: _ctrlEdad,
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 26),
@@ -134,13 +134,13 @@ class _EdadScreenState extends State<EdadScreen> {
                 width: double.infinity,
                 height: 46,
                 child: ElevatedButton(
-                  onPressed: _saving ? null : _onContinue,
+                  onPressed: _guardando ? null : _onContinuar,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: accent,
+                    backgroundColor: colorPrincipal,
                     foregroundColor: Colors.white,   // texto blanco
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                   ),
-                  child: _saving
+                  child: _guardando
                       ? const SizedBox(
                       width: 22,
                       height: 22,

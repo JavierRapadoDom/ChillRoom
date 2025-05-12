@@ -4,13 +4,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreateFlatDetailsScreen extends StatefulWidget {
-  final String street, province, country, postal, description;
+  final String calle, provincia, pais, postal, descripcion;
   const CreateFlatDetailsScreen({
-    required this.street,
-    required this.province,
-    required this.country,
+    required this.calle,
+    required this.provincia,
+    required this.pais,
     required this.postal,
-    required this.description,
+    required this.descripcion,
     super.key,
   });
 
@@ -21,22 +21,22 @@ class CreateFlatDetailsScreen extends StatefulWidget {
 
 class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _roomsCtrl = TextEditingController();
-  final _areaCtrl = TextEditingController();
-  final _priceCtrl = TextEditingController();        // ← Nuevo controlador para precio
-  final List<XFile> _photos = [];
+  final _ctrlHabitaciones = TextEditingController();
+  final _ctrlMetros = TextEditingController();
+  final _ctrlPrecio = TextEditingController();
+  final List<XFile> _lstFotos = [];
   final ImagePicker _picker = ImagePicker();
   final _supabase = Supabase.instance.client;
 
   @override
   void dispose() {
-    _roomsCtrl.dispose();
-    _areaCtrl.dispose();
-    _priceCtrl.dispose();                            // ← limpiar controlador
+    _ctrlHabitaciones.dispose();
+    _ctrlMetros.dispose();
+    _ctrlPrecio.dispose();
     super.dispose();
   }
 
-  Future<void> _addPhoto() async {
+  Future<void> _anadirFoto() async {
     try {
       final picked = await _picker.pickImage(
         source: ImageSource.gallery,
@@ -44,8 +44,8 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
         maxHeight: 800,
         imageQuality: 80,
       );
-      if (picked != null && _photos.length < 3) {
-        setState(() => _photos.add(picked));
+      if (picked != null && _lstFotos.length < 3) {
+        setState(() => _lstFotos.add(picked));
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -56,7 +56,7 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
 
   Future<void> _finish() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_photos.isEmpty) {
+    if (_lstFotos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Añade al menos una foto")),
       );
@@ -67,27 +67,27 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
     final bucket = _supabase.storage.from('publicaciones.photos');
 
     try {
-      // 1) Subida de fotos
+      // 1. Subida de fotos
       final List<String> publicUrls = [];
-      for (var file in _photos) {
+      for (var file in _lstFotos) {
         final storagePath =
             '${user.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
         await bucket.upload(storagePath, File(file.path));
         publicUrls.add(bucket.getPublicUrl(storagePath));
       }
 
-      // 2) Insert en BD incluyendo el nuevo campo 'precio'
+      // 2. Insertar en la db incluyendo el nuevo campo 'precio'
       await _supabase.from('publicaciones_piso').insert({
         'anfitrion_id': user.id,
-        'titulo': widget.street,
-        'direccion': widget.street,
-        'ciudad': widget.province,
-        'pais': widget.country,
+        'titulo': widget.calle,
+        'direccion': widget.calle,
+        'ciudad': widget.provincia,
+        'pais': widget.pais,
         'codigo_postal': widget.postal,
-        'descripcion': widget.description,
-        'numero_habitaciones': int.parse(_roomsCtrl.text.trim()),
-        'metros_cuadrados': double.parse(_areaCtrl.text.trim()),
-        'precio': double.parse(_priceCtrl.text.trim()),    // ← aquí
+        'descripcion': widget.descripcion,
+        'numero_habitaciones': int.parse(_ctrlHabitaciones.text.trim()),
+        'metros_cuadrados': double.parse(_ctrlMetros.text.trim()),
+        'precio': double.parse(_ctrlPrecio.text.trim()),    // ← aquí
         'fotos': publicUrls,
         'companeros_id': <String>[],
       });
@@ -117,7 +117,6 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Nº habitaciones / m²
               Row(
                 children: [
                   Expanded(
@@ -126,7 +125,7 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
                       children: [
                         const Text('Nº de habitaciones'),
                         TextFormField(
-                          controller: _roomsCtrl,
+                          controller: _ctrlHabitaciones,
                           decoration: const InputDecoration(
                               enabledBorder: UnderlineInputBorder()),
                           keyboardType: TextInputType.number,
@@ -143,7 +142,7 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
                       children: [
                         const Text('Nº de m²'),
                         TextFormField(
-                          controller: _areaCtrl,
+                          controller: _ctrlMetros,
                           decoration: const InputDecoration(
                               enabledBorder: UnderlineInputBorder()),
                           keyboardType: TextInputType.number,
@@ -158,10 +157,10 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
 
               const SizedBox(height: 24),
 
-              // **Precio**
+
               const Text('Precio (€)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               TextFormField(
-                controller: _priceCtrl,
+                controller: _ctrlPrecio,
                 decoration: const InputDecoration(
                   hintText: 'Ej. 350',
                   enabledBorder: UnderlineInputBorder(),
@@ -173,16 +172,16 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
 
               const SizedBox(height: 24),
 
-              // Fotos del piso
+
               const Text('Fotos del piso', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Row(
                 children: List.generate(3, (i) {
-                  final hasPhoto = i < _photos.length;
+                  final hasPhoto = i < _lstFotos.length;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
-                      onTap: _addPhoto,
+                      onTap: _anadirFoto,
                       child: Container(
                         width: 80,
                         height: 80,
@@ -194,7 +193,7 @@ class _CreateFlatDetailsScreenState extends State<CreateFlatDetailsScreen> {
                             ? ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: Image.file(
-                            File(_photos[i].path),
+                            File(_lstFotos[i].path),
                             fit: BoxFit.cover,
                             width: 80,
                             height: 80,

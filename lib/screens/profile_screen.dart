@@ -1,4 +1,3 @@
-// lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -19,7 +18,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _auth = AuthService();
   late final SupabaseClient _supabase;
-  int _selectedBottomIndex = 3; // Perfil tab
+  int _seleccionMenuInferior = 3;
 
   @override
   void initState() {
@@ -27,7 +26,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _supabase = Supabase.instance.client;
   }
 
-  String _formatRole(String rol) {
+  String _darFormatoRol(String rol) {
     switch (rol) {
       case 'busco_piso':
         return 'Busco piso';
@@ -38,7 +37,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<Map<String, dynamic>> _fetchData() async {
+  Future<Map<String, dynamic>> _cargarDatosUsuario() async {
     final uid = _supabase.auth.currentUser!.id;
 
     final user = await _supabase
@@ -70,7 +69,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return {
       'nombre': user['nombre'],
       'edad': user['edad'],
-      'rol': _formatRole(user['rol']),
+      'rol': _darFormatoRol(user['rol']),
       'biografia': prof['biografia'] ?? '',
       'intereses': [
         ...List<String>.from(prof['estilo_vida'] ?? []),
@@ -82,7 +81,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
   }
 
-  void _openBioDialog(String currentBio) {
+  void _abrirDialogoBio(String currentBio) {
     final ctrl = TextEditingController(text: currentBio);
 
     showDialog(
@@ -138,8 +137,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _onBottomNavChanged(int idx) {
-    if (idx == _selectedBottomIndex) return;
+  void _cambiarMenuInferior(int idx) {
+    if (idx == _seleccionMenuInferior) return;
     late Widget screen;
     switch (idx) {
       case 0:
@@ -155,11 +154,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         screen = const ProfileScreen();
     }
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
-    _selectedBottomIndex = idx;
+    _seleccionMenuInferior = idx;
   }
 
-  void _signOut() async {
-    await _auth.signOut();
+  void _cerrarSesion() async {
+    await _auth.cerrarSesion();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
@@ -181,7 +180,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         centerTitle: true,
       ),
       body: FutureBuilder<Map<String, dynamic>>(
-        future: _fetchData(),
+        future: _cargarDatosUsuario(),
         builder: (c, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -305,7 +304,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const Text('Biografía',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     TextButton(
-                      onPressed: () => _openBioDialog(d['biografia']),
+                      onPressed: () => _abrirDialogoBio(d['biografia']),
                       child: Text(
                         (d['biografia'] as String).isEmpty ? 'Añadir' : 'Editar',
                         style: const TextStyle(color: accent),
@@ -334,7 +333,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 32),
                 ElevatedButton(
-                  onPressed: _signOut,
+                  onPressed: _cerrarSesion,
                   style: ElevatedButton.styleFrom(
                       backgroundColor: accent,
                       foregroundColor: Colors.white,
@@ -349,8 +348,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         },
       ),
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedBottomIndex,
-        onBottomNavChanged: _onBottomNavChanged,
+        seleccionMenuInferior: _seleccionMenuInferior,
+        cambiarMenuInferior: _cambiarMenuInferior,
       ),
     );
   }

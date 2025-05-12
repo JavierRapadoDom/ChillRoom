@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
-  void _continue(BuildContext context) {
+  void _continuar(BuildContext context) {
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
-    final rules = [
+    final normas = [
       "Sé tú mismo. Usa información real en tu perfil.",
       "Respeta a los demás usuarios.",
       "No compartas datos personales demasiado rápido.",
@@ -44,7 +44,7 @@ class WelcomeScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Expanded(
               child: ListView.separated(
-                itemCount: rules.length,
+                itemCount: normas.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
                   return Row(
@@ -54,7 +54,7 @@ class WelcomeScreen extends StatelessWidget {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          rules[index],
+                          normas[index],
                           style: const TextStyle(
                             fontSize: 16,
                             color: Colors.black87,
@@ -70,7 +70,7 @@ class WelcomeScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => _continue(context),
+                onPressed: () => _continuar(context),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE3A62F),
                   foregroundColor: Colors.white,

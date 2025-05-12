@@ -19,26 +19,25 @@ class UserDetailsScreen extends StatefulWidget {
 }
 
 class _UserDetailsScreenState extends State<UserDetailsScreen> {
-  /* ---------- constantes & supabase ---------- */
-  static const accent = Color(0xFFE3A62F);
+
+  static const colorPrincipal = Color(0xFFE3A62F);
   final supabase = Supabase.instance.client;
 
   /* ---------- estado ---------- */
-  late Future<Map<String, dynamic>> _futureUser;
-  int _selectedBottomIndex = -1;
+  late Future<Map<String, dynamic>> _futureDatosUsuario;
+  int seleccionMenuInferior = -1;
 
   /* ---------- carrusel ---------- */
-  final _pageCtrl     = PageController();
-  int   _currentPhoto = 0;
+  final _ctrlPage     = PageController();
+  int   _fotoActual = 0;
 
   @override
   void initState() {
     super.initState();
-    _futureUser = _loadUser();
+    _futureDatosUsuario = _cargarUsuario();
   }
 
-  /* ────────────────── DB ────────────────── */
-  Future<Map<String, dynamic>> _loadUser() async {
+  Future<Map<String, dynamic>> _cargarUsuario() async {
     final row = await supabase
         .from('usuarios')
         .select(r'''
@@ -93,9 +92,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     };
   }
 
-  /* ───────────── bottom-nav ───────────── */
-  void _onBottomNavChanged(int idx) {
-    if (idx == _selectedBottomIndex) return;
+  void _cambiarMenuInferior(int idx) {
+    if (idx == seleccionMenuInferior) return;
 
     Widget? dest;
     switch (idx) {
@@ -106,7 +104,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     }
     if (dest != null) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest!));
-      setState(() => _selectedBottomIndex = idx);
+      setState(() => seleccionMenuInferior = idx);
     }
   }
 
@@ -121,14 +119,14 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       appBar: AppBar(
         leading: const BackButton(color: Colors.black),
         title: const Text('ChillRoom',
-            style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 20)),
+            style: TextStyle(color: colorPrincipal, fontWeight: FontWeight.bold, fontSize: 20)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
       ),
 
       body: FutureBuilder<Map<String, dynamic>>(
-        future: _futureUser,
+        future: _futureDatosUsuario,
         builder: (ctx, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -157,8 +155,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: PageView.builder(
-                          controller: _pageCtrl,
-                          onPageChanged: (i) => setState(() => _currentPhoto = i),
+                          controller: _ctrlPage,
+                          onPageChanged: (i) => setState(() => _fotoActual = i),
                           itemCount: fotos.isEmpty ? 1 : fotos.length,
                           itemBuilder: (_, i) {
                             if (fotos.isEmpty) {
@@ -182,7 +180,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           alignment: Alignment.centerLeft,
                           child: IconButton(
                             icon: const Icon(Icons.chevron_left, size: 32, color: Colors.white),
-                            onPressed: () => _pageCtrl.previousPage(
+                            onPressed: () => _ctrlPage.previousPage(
                                 duration: const Duration(milliseconds: 300),
                                 curve: Curves.easeInOut),
                           ),
@@ -191,7 +189,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           alignment: Alignment.centerRight,
                           child: IconButton(
                             icon: const Icon(Icons.chevron_right, size: 32, color: Colors.white),
-                            onPressed: () => _pageCtrl.nextPage(
+                            onPressed: () => _ctrlPage.nextPage(
                                 duration: const Duration(milliseconds: 300),
                                 curve: Curves.easeInOut),
                           ),
@@ -210,7 +208,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                 height: 8,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: i == _currentPhoto ? accent : Colors.white54,
+                                  color: i == _fotoActual ? colorPrincipal : Colors.white54,
                                 ),
                               ),
                             ),
@@ -222,12 +220,12 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                /* ---------- nombre / edad ---------- */
+                /*  nombre / edad  */
                 Text('${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
                     style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
 
-                /* ---------- biografía ---------- */
+                /*  biografía */
                 if ((d['biografia'] as String).isNotEmpty) ...[
                   const Text('Biografía',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -236,7 +234,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                   const SizedBox(height: 20),
                 ],
 
-                /* ---------- piso ---------- */
+                /*  piso  */
                 const Text('Piso',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
@@ -256,7 +254,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           style: const TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
                       Text('${flat['precio']} €/mes',
-                          style: const TextStyle(color: accent)),
+                          style: const TextStyle(color: colorPrincipal)),
                       TextButton(
                         onPressed: () => Navigator.pushNamed(context, '/flat-detail',
                             arguments: flat['id']),
@@ -267,7 +265,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                /* ---------- intereses ---------- */
+                /*  intereses  */
                 if (intereses.isNotEmpty) ...[
                   const Text('Intereses',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -279,7 +277,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                         .map((i) => Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                          color: accent, borderRadius: BorderRadius.circular(20)),
+                          color: colorPrincipal, borderRadius: BorderRadius.circular(20)),
                       child: Text(i, style: const TextStyle(color: Colors.white)),
                     ))
                         .toList(),
@@ -287,12 +285,12 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                   const SizedBox(height: 24),
                 ],
 
-                /* ---------- botón contactar ---------- */
+                /*  botón contactar  */
                 if (!isMe)
                   ElevatedButton.icon(
                     onPressed: () async {
                       final chatId =
-                      await ChatService.instance.getOrCreateChat(widget.userId);
+                      await ChatService.instance.obtenerOCrearChat(widget.userId);
                       if (!mounted) return;
 
                       Navigator.push(
@@ -300,7 +298,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                         MaterialPageRoute(
                           builder: (_) => ChatDetailScreen(
                             chatId: chatId,
-                            partner: {
+                            companero: {
                               'id'          : widget.userId,
                               'nombre'      : d['nombre'],
                               'foto_perfil' : d['avatarUrl'],
@@ -312,7 +310,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                     icon: const Icon(Icons.chat_bubble_outline),
                     label: const Text('Contactar'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: accent,
+                      backgroundColor: colorPrincipal,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape:
@@ -325,10 +323,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
         },
       ),
 
-      /* ---------- menú inferior ---------- */
+      /*  menú inferior  */
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedBottomIndex,
-        onBottomNavChanged: _onBottomNavChanged,
+        seleccionMenuInferior: seleccionMenuInferior,
+        cambiarMenuInferior: _cambiarMenuInferior,
       ),
     );
   }

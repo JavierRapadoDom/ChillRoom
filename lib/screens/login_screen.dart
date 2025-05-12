@@ -14,18 +14,18 @@ class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
   final ProfileService _profileService = ProfileService();
   final _formKey = GlobalKey<FormState>();
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
+  final _ctrlCorreo = TextEditingController();
+  final _ctrlPass = TextEditingController();
   bool _isLoading = false;
-  bool _obscurePass = true;
+  bool _ocultarPass = true;
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
-    final error = await _authService.signInWithEmail(
-      _emailCtrl.text.trim(),
-      _passCtrl.text.trim(),
+    final error = await _authService.iniciarSesionEmail(
+      _ctrlCorreo.text.trim(),
+      _ctrlPass.text.trim(),
     );
 
     if (error != null) {
@@ -35,10 +35,10 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     // asegurar perfil
-    final user = _authService.getCurrentUser();
+    final user = _authService.obtenerUsuarioActual();
     if (user != null) {
       try {
-        await _profileService.ensureProfile(user.id);
+        await _profileService.asegurarPerfil(user.id);
       } catch (e) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Error preparando perfil: $e')));
@@ -86,7 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         children: [
                           TextFormField(
-                            controller: _emailCtrl,
+                            controller: _ctrlCorreo,
                             decoration: InputDecoration(
                               hintText: 'Correo electrónico',
                               filled: true,
@@ -108,8 +108,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
-                            controller: _passCtrl,
-                            obscureText: _obscurePass,
+                            controller: _ctrlPass,
+                            obscureText: _ocultarPass,
                             decoration: InputDecoration(
                               hintText: 'Contraseña',
                               filled: true,
@@ -117,11 +117,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 14),
                               suffixIcon: IconButton(
-                                icon: Icon(_obscurePass
+                                icon: Icon(_ocultarPass
                                     ? Icons.visibility_off
                                     : Icons.visibility),
                                 onPressed: () =>
-                                    setState(() => _obscurePass = !_obscurePass),
+                                    setState(() => _ocultarPass = !_ocultarPass),
                               ),
                               border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -141,7 +141,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: () {
-                                // TODO: recuperación de contraseña
+                                // TODO: implementar recuperar la contra
                               },
                               child: const Text(
                                 '¿Olvidaste tu contraseña?',
@@ -184,7 +184,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _socialBtn('assets/botonGoogle.png',
-                            _authService.signInWithGoogle),
+                            _authService.iniciarSesionGoogle),
                         const SizedBox(width: 16),
                         _socialBtn('assets/botonApple.png', () {}),
                         const SizedBox(width: 16),

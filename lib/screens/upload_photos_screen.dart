@@ -14,23 +14,21 @@ class UploadPhotosScreen extends StatefulWidget {
 }
 
 class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
-  /* ─── Constantes ─── */
-  static const accent = Color(0xFFE3A62F);
-  static const _progress = 1.0;           // 100 %
+  static const colorPrincipal = Color(0xFFE3A62F);
+  static const _progress = 1.0;
 
   final _picker  = ImagePicker();
-  final _images  = <File>[];
-  bool  _uploading = false;
+  final _imagenes  = <File>[];
+  bool  _uploadingFoto = false;
 
-  /* ─── lógica fotos ─── */
-  Future<void> _addPhoto() async {
+  Future<void> _anadirFoto() async {
     final XFile? picked =
     await _picker.pickImage(source: ImageSource.gallery);
-    if (picked != null) setState(() => _images.add(File(picked.path)));
+    if (picked != null) setState(() => _imagenes.add(File(picked.path)));
   }
 
-  Future<void> _upload() async {
-    if (_images.isEmpty) {
+  Future<void> _subirFoto() async {
+    if (_imagenes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Añade al menos una foto')));
       return;
@@ -40,21 +38,21 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
     final user     = supabase.auth.currentUser;
     if (user == null) return;
 
-    setState(() => _uploading = true);
+    setState(() => _uploadingFoto = true);
 
-    final uploadedUrls = <String>[];
+    final urlsSubidas = <String>[];
     try {
-      for (final file in _images) {
+      for (final file in _imagenes) {
         final name =
             '${user.id}/${DateTime.now().millisecondsSinceEpoch}.jpg';
 
         await supabase.storage.from('profile.photos').upload(name, file);
-        uploadedUrls.add(
+        urlsSubidas.add(
             supabase.storage.from('profile.photos').getPublicUrl(name));
       }
 
       final error =
-      await ProfileService().updateProfile({'fotos': uploadedUrls});
+      await ProfileService().actualizarPerfil({'fotos': urlsSubidas});
       if (error != null) {
         throw error; // será atrapado por el catch de abajo
       }
@@ -65,12 +63,11 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Error subiendo fotos: $e')));
-        setState(() => _uploading = false);
+        setState(() => _uploadingFoto = false);
       }
     }
   }
 
-  /* ─── UI ─── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -79,14 +76,13 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            /* Barra de progreso */
             Container(
               height: 4,
               margin: const EdgeInsets.only(top: 8),
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
 
@@ -111,7 +107,7 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
                     /* Grid */
                     Expanded(
                       child: GridView.builder(
-                        itemCount: _images.length + 1,
+                        itemCount: _imagenes.length + 1,
                         gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
@@ -119,12 +115,12 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
                           mainAxisSpacing: 12,
                         ),
                         itemBuilder: (_, i) {
-                          if (i == _images.length) {
-                            return _AddButton(onTap: _addPhoto);
+                          if (i == _imagenes.length) {
+                            return _btnAnadirFoto(onTap: _anadirFoto);
                           }
                           return ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.file(_images[i], fit: BoxFit.cover),
+                            child: Image.file(_imagenes[i], fit: BoxFit.cover),
                           );
                         },
                       ),
@@ -136,15 +132,15 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _uploading ? null : _upload,
+                        onPressed: _uploadingFoto ? null : _subirFoto,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
+                          backgroundColor: colorPrincipal,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(24)),
                         ),
-                        child: _uploading
+                        child: _uploadingFoto
                             ? const SizedBox(
                             width: 22,
                             height: 22,
@@ -168,9 +164,9 @@ class _UploadPhotosScreenState extends State<UploadPhotosScreen> {
 }
 
 /* ─── Botón “+” ─── */
-class _AddButton extends StatelessWidget {
+class _btnAnadirFoto extends StatelessWidget {
   final VoidCallback onTap;
-  const _AddButton({required this.onTap});
+  const _btnAnadirFoto({required this.onTap});
 
   @override
   Widget build(BuildContext context) {

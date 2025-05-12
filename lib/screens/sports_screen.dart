@@ -1,4 +1,3 @@
-// lib/screens/sports_screen.dart
 import 'package:chillroom/screens/entertainment_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -11,12 +10,10 @@ class SportsScreen extends StatefulWidget {
 }
 
 class _SportsScreenState extends State<SportsScreen> {
-  /* ───────── CONST ───────── */
-  static const accent    = Color(0xFFE3A62F);
-  static const _progress = 0.80;          // 80 % del onboarding
+  static const colorPrincipal    = Color(0xFFE3A62F);
+  static const _progress = 0.80;
 
-  /// Deporte → Icono
-  final _sports = <String, IconData>{
+  final _opcionesAElegir = <String, IconData>{
     'Correr'      : Icons.directions_run,
     'Gimnasio'    : Icons.fitness_center,
     'Yoga'        : Icons.self_improvement,
@@ -28,14 +25,13 @@ class _SportsScreenState extends State<SportsScreen> {
     'Tenis'       : Icons.sports_tennis,
   };
 
-  final List<String> _selected = [];
+  final List<String> _lstSeleccionados = [];
 
-  /* ───────── LOGIC ───────── */
-  void _toggle(String s) =>
-      setState(() => _selected.contains(s) ? _selected.remove(s) : _selected.add(s));
+  void _toggleGustos(String s) =>
+      setState(() => _lstSeleccionados.contains(s) ? _lstSeleccionados.remove(s) : _lstSeleccionados.add(s));
 
-  Future<void> _continue() async {
-    if (_selected.isEmpty) {
+  Future<void> _continuar() async {
+    if (_lstSeleccionados.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Selecciona al menos un deporte')));
       return;
@@ -51,7 +47,7 @@ class _SportsScreenState extends State<SportsScreen> {
 
     try {
       await supabase.from('perfiles')
-          .update({'deportes': _selected})
+          .update({'deportes': _lstSeleccionados})
           .eq('usuario_id', user.id);
 
       if (!mounted) return;
@@ -65,7 +61,6 @@ class _SportsScreenState extends State<SportsScreen> {
     }
   }
 
-  /* ───────── BUILD ───────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -73,14 +68,13 @@ class _SportsScreenState extends State<SportsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // barra de progreso fina
             Container(
               height: 4,
               margin: const EdgeInsets.only(top: 8),
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
 
@@ -93,7 +87,6 @@ class _SportsScreenState extends State<SportsScreen> {
               ),
             ),
 
-            /* ---------- CONTENIDO ---------- */
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -117,8 +110,8 @@ class _SportsScreenState extends State<SportsScreen> {
                       child: Wrap(
                         spacing: 12,
                         runSpacing: 12,
-                        children: _sports.entries
-                            .map((e) => _chip(e.key, e.value))
+                        children: _opcionesAElegir.entries
+                            .map((e) => _wgtChip(e.key, e.value))
                             .toList(),
                       ),
                     ),
@@ -128,9 +121,9 @@ class _SportsScreenState extends State<SportsScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _continue,
+                        onPressed: _continuar,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
+                          backgroundColor: colorPrincipal,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -153,22 +146,21 @@ class _SportsScreenState extends State<SportsScreen> {
     );
   }
 
-  /* ───────── CHIP ───────── */
-  Widget _chip(String label, IconData icon) {
-    final sel = _selected.contains(label);
+  Widget _wgtChip(String label, IconData icon) {
+    final sel = _lstSeleccionados.contains(label);
     return GestureDetector(
-      onTap: () => _toggle(label),
+      onTap: () => _toggleGustos(label),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: sel ? accent : Colors.transparent,
+          color: sel ? colorPrincipal : Colors.transparent,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: sel ? accent : Colors.grey.shade400),
+          border: Border.all(color: sel ? colorPrincipal : Colors.grey.shade400),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: sel ? Colors.white : accent),
+            Icon(icon, size: 18, color: sel ? Colors.white : colorPrincipal),
             const SizedBox(width: 6),
             Text(
               label,

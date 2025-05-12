@@ -19,12 +19,11 @@ class MessagesScreen extends StatefulWidget {
 class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObserver {
   final _supabase = Supabase.instance.client;
   final _auth = AuthService();
-  int _selectedBottomIndex = 2; // pestaña Mensajes
+  int _seleccionMenuInferior = 2;
 
-  /// Carga los chats del usuario actual y su última foto de perfil
-  Future<List<Map<String, dynamic>>> _loadChats() async {
+  Future<List<Map<String, dynamic>>> _cargarChats() async {
     final me = _supabase.auth.currentUser!;
-    // 1) Traer chats con mensajes e interlocutores
+    // 1) Traer chats con mensajes
     final rows = await _supabase
         .from('chats')
         .select('''
@@ -37,20 +36,20 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
         ''')
         .or('usuario1_id.eq.${me.id},usuario2_id.eq.${me.id}');
 
-    // 2) Compilar set de IDs para cargar avatar
-    final partnerIds = <String>{};
+    // 2) Compilar set de IDs para cargar foto
+    final idsCompaneros = <String>{};
     for (final r in rows as List) {
       final row = r as Map<String, dynamic>;
       final u1 = (row['usuario1'] as Map)['id'] as String;
       final u2 = (row['usuario2'] as Map)['id'] as String;
-      if (u1 != me.id) partnerIds.add(u1);
-      if (u2 != me.id) partnerIds.add(u2);
+      if (u1 != me.id) idsCompaneros.add(u1);
+      if (u2 != me.id) idsCompaneros.add(u2);
     }
 
     // 3) Traer primeras fotos de cada interlocutor
     final avatarMap = <String, String?>{};
-    if (partnerIds.isNotEmpty) {
-      final orFilter = partnerIds.map((id) => 'usuario_id.eq.$id').join(',');
+    if (idsCompaneros.isNotEmpty) {
+      final orFilter = idsCompaneros.map((id) => 'usuario_id.eq.$id').join(',');
       final perfiles = await _supabase
           .from('perfiles')
           .select('usuario_id,fotos')
@@ -97,9 +96,8 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
     return chats;
   }
 
-  /// Navegación del menú inferior
-  void _onBottomNavChanged(int idx) {
-    if (idx == _selectedBottomIndex) return;
+  void _cambiarMenuInferior(int idx) {
+    if (idx == _seleccionMenuInferior) return;
     Widget? dest;
     switch (idx) {
       case 0:
@@ -112,14 +110,14 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
         dest = const ProfileScreen();
         break;
       default:
-        dest = null; // 2 = Mensajes: ya en esta pantalla
+        dest = null;
     }
     if (dest != null) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => dest!),
       );
-      setState(() => _selectedBottomIndex = idx);
+      setState(() => _seleccionMenuInferior = idx);
     }
   }
 
@@ -141,7 +139,7 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
       ),
 
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _loadChats(),
+        future: _cargarChats(),
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -158,7 +156,7 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
             onRefresh: () async {
               setState(() {});
               // Espera a que _loadChats() termine
-              await _loadChats();
+              await _cargarChats();
             },
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -183,11 +181,11 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
                       MaterialPageRoute(
                         builder: (_) => ChatDetailScreen(
                           chatId: c['chatId'] as String,
-                          partner: partner,
+                          companero: partner,
                         ),
                       ),
                     ).then((_) {
-                      // Al volver de ChatDetail, refrescamos
+                      // Al volver de ChatDetail, se refresca
                       setState(() {});
                     });
                   },
@@ -229,8 +227,8 @@ class _MessagesScreenState extends State<MessagesScreen> with WidgetsBindingObse
       ),
 
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedBottomIndex,
-        onBottomNavChanged: _onBottomNavChanged,
+        seleccionMenuInferior: _seleccionMenuInferior,
+        cambiarMenuInferior: _cambiarMenuInferior,
       ),
     );
   }

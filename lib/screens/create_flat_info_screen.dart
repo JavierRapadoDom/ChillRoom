@@ -42,11 +42,11 @@ class _CreateFlatInfoScreenState extends State<CreateFlatInfoScreen> {
         context,
         MaterialPageRoute(
           builder: (_) => CreateFlatDetailsScreen(
-            street: _streetCtrl.text.trim(),
-            province: _province!,
-            country: _country,
+            calle: _streetCtrl.text.trim(),
+            provincia: _province!,
+            pais: _country,
             postal: _postalCtrl.text.trim(),
-            description: _descCtrl.text.trim(),
+            descripcion: _descCtrl.text.trim(),
           ),
         ),
       );

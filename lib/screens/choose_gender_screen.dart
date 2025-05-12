@@ -10,31 +10,31 @@ class ChooseGenderScreen extends StatefulWidget {
 }
 
 class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
-  /* ---------------- constants ---------------- */
-  static const accent   = Color(0xFFE3A62F);
-  static const _progress = 0.45;        // 45 % del onboarding
+  /* ---------------- constantes ---------------- */
+  static const colorPrincipal   = Color(0xFFE3A62F);
+  static const _progress = 0.45;
 
   /* ---------------- state ---------------- */
-  String? selectedGender;
-  bool    _saving = false;
+  String? generoElegido;
+  bool    _guardando = false;
 
   /* ---------------- helpers ---------------- */
-  void _selectGender(String g) => setState(() => selectedGender = g);
+  void _generoElegido(String g) => setState(() => generoElegido = g);
 
   Future<void> _continue() async {
-    if (selectedGender == null) {
+    if (generoElegido == null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Por favor selecciona tu género')));
       return;
     }
 
-    setState(() => _saving = true);
+    setState(() => _guardando = true);
 
     final supabase = Supabase.instance.client;
     final uid      = supabase.auth.currentUser!.id;
 
     try {
-      await supabase.from('usuarios').update({'genero': selectedGender}).eq('id', uid);
+      await supabase.from('usuarios').update({'genero': generoElegido}).eq('id', uid);
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/age');
@@ -42,7 +42,7 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error al guardar el género: $e')));
-      setState(() => _saving = false);
+      setState(() => _guardando = false);
     }
   }
 
@@ -61,7 +61,7 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
               alignment: Alignment.centerLeft,
               child: FractionallySizedBox(
                 widthFactor: _progress,
-                child: Container(color: accent),
+                child: Container(color: colorPrincipal),
               ),
             ),
 
@@ -85,11 +85,11 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
                     const Text('SOY',
                         style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 32),
-                    _option('Mujer'),
+                    _wgtOpcion('Mujer'),
                     const SizedBox(height: 16),
-                    _option('Hombre'),
+                    _wgtOpcion('Hombre'),
                     const SizedBox(height: 16),
-                    _option('Otro'),
+                    _wgtOpcion('Otro'),
                   ],
                 ),
               ),
@@ -102,13 +102,13 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
                 width: double.infinity,
                 height: 46,
                 child: ElevatedButton(
-                  onPressed: _saving ? null : _continue,
+                  onPressed: _guardando ? null : _continue,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: accent,
+                    backgroundColor: colorPrincipal,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                   ),
-                  child: _saving
+                  child: _guardando
                       ? const SizedBox(
                       width: 22,
                       height: 22,
@@ -124,15 +124,15 @@ class _ChooseGenderScreenState extends State<ChooseGenderScreen> {
   }
 
   /* ---------- widget opción ---------- */
-  Widget _option(String g) {
-    final sel = selectedGender == g;
+  Widget _wgtOpcion(String g) {
+    final sel = generoElegido == g;
     return GestureDetector(
-      onTap: () => _selectGender(g),
+      onTap: () => _generoElegido(g),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: sel ? accent : Colors.transparent,
+          color: sel ? colorPrincipal : Colors.transparent,
           borderRadius: BorderRadius.circular(32),
           border: Border.all(color: Colors.grey.shade400),
         ),

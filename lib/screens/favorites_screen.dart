@@ -1,4 +1,3 @@
-// lib/screens/favorites_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,16 +16,16 @@ class FavoritesScreen extends StatefulWidget {
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
   final _supabase = Supabase.instance.client;
-  late Future<List<Map<String, dynamic>>> _futureFavorites;
-  int _selectedIndex = 1; // Índice 1 = Favoritos
+  late Future<List<Map<String, dynamic>>> _futureFavoritos;
+  int _seleccionMenu = 1;
 
   @override
   void initState() {
     super.initState();
-    _futureFavorites = _loadFavorites();
+    _futureFavoritos = _cargarFavoritos();
   }
 
-  Future<List<Map<String, dynamic>>> _loadFavorites() async {
+  Future<List<Map<String, dynamic>>> _cargarFavoritos() async {
     final user = _supabase.auth.currentUser!;
     final favsResp = await _supabase
         .from('favoritos_piso')
@@ -58,8 +57,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         .toList();
   }
 
-  void _onNavTap(int idx) {
-    if (idx == _selectedIndex) return;
+  void _cambiarMenuInferior(int idx) {
+    if (idx == _seleccionMenu) return;
     Widget dest;
     switch (idx) {
       case 0:
@@ -81,7 +80,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       context,
       MaterialPageRoute(builder: (_) => dest),
     );
-    setState(() => _selectedIndex = idx);
+    setState(() => _seleccionMenu = idx);
   }
 
   @override
@@ -98,7 +97,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       ),
 
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _futureFavorites,
+        future: _futureFavoritos,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -191,8 +190,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       ),
 
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedIndex,
-        onBottomNavChanged: _onNavTap,
+        seleccionMenuInferior: _seleccionMenu,
+        cambiarMenuInferior: _cambiarMenuInferior,
       ),
     );
   }

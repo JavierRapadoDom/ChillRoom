@@ -15,26 +15,25 @@ class _PisosViewState extends State<PisosView> {
   final FavoriteService _favService = FavoriteService();
 
   late final Future<List<Map<String, dynamic>>> _futurePisos;
-  Set<String> _myFavorites = {};
+  Set<String> _misFavoritos = {};
 
   @override
   void initState() {
     super.initState();
-    _loadAll();
+    _cargarTodo();
   }
 
-  void _loadAll() {
-    // Lanzamos ambas cargas en paralelo
-    _futurePisos = _loadPisos();
-    _favService.getMyFavoritePisos().then((favIds) {
-      setState(() => _myFavorites = favIds);
+  void _cargarTodo() {
+    _futurePisos = _cargarPisos();
+    _favService.obtenerPisosFavoritos().then((favIds) {
+      setState(() => _misFavoritos = favIds);
     });
   }
 
-  Future<List<Map<String, dynamic>>> _loadPisos() async {
+  Future<List<Map<String, dynamic>>> _cargarPisos() async {
     final supabase = Supabase.instance.client;
 
-    // 1) Publicaciones
+    // 1. Publicaciones
     final pubsRaw = await supabase
         .from('publicaciones_piso')
         .select('''
@@ -53,21 +52,21 @@ class _PisosViewState extends State<PisosView> {
 
     final publicaciones = (pubsRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
-    // 2) IDs de anfitriones
+    // 2. IDs de anfitriones
     final hostIds = publicaciones.map((p) => p['anfitrion_id'] as String).toSet().toList();
     if (hostIds.isEmpty) return publicaciones;
 
-    // 3) Traer nombres de anfitriones
+    // 3. Traer nombres de anfitriones
     final usersRaw = await supabase.from('usuarios').select('id, nombre').or(hostIds.map((id) => 'id.eq.$id').join(','));
-    final allUsers = (usersRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final todosUsuarios = (usersRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
-    // 4) Traer perfiles (fotos) de anfitriones
+    // 4. Traer perfiles (fotos) de anfitriones
     final perfRaw = await supabase.from('perfiles').select('usuario_id, fotos').or(hostIds.map((id) => 'usuario_id.eq.$id').join(','));
     final allPerfiles = (perfRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
-    // 5) Construir hostMap con avatarUrl bien resuelto
+    // 5. Construir hostMap con avatarUrl bien resuelto
     final hostMap = <String, Map<String, dynamic>>{};
-    for (final u in allUsers) {
+    for (final u in todosUsuarios) {
       final id = u['id'] as String;
       // Busscamos su perfil
       final perfil = allPerfiles.firstWhere((p) => p['usuario_id'] == id, orElse: () => {'fotos': <String>[]});
@@ -76,10 +75,8 @@ class _PisosViewState extends State<PisosView> {
       if (fotos.isNotEmpty) {
         final rawPath = fotos.first;
         if (rawPath.startsWith('http')) {
-          // Ya es URL completa
           avatarUrl = rawPath;
         } else {
-          // Es solo path dentro del bucket
           avatarUrl = supabase.storage.from('profile.photos').getPublicUrl(rawPath);
         }
       }
@@ -90,7 +87,7 @@ class _PisosViewState extends State<PisosView> {
       };
     }
 
-    // 6) Mezclar datos
+    // 6. Mezclar datos
     for (final pub in publicaciones) {
       final total = pub['numero_habitaciones'] as int;
       final used = (pub['companeros_id'] as List).length;
@@ -101,10 +98,10 @@ class _PisosViewState extends State<PisosView> {
     return publicaciones;
   }
 
-  void _onTapFavorite(String pisoId) async {
-    await _favService.toggleFavorite(pisoId);
-    final favs = await _favService.getMyFavoritePisos();
-    setState(() => _myFavorites = favs);
+  void _presionarFavorito(String pisoId) async {
+    await _favService.alternarFavorito(pisoId);
+    final favs = await _favService.obtenerPisosFavoritos();
+    setState(() => _misFavoritos = favs);
   }
 
   @override
@@ -136,7 +133,7 @@ class _PisosViewState extends State<PisosView> {
 
             final piso = pisos[index - 1];
             final pisoId = piso['id'] as String;
-            final isFav = _myFavorites.contains(pisoId);
+            final isFav = _misFavoritos.contains(pisoId);
             final host = piso['anfitrion'] as Map<String, dynamic>?;
             final fotos = List<String>.from(piso['fotos'] ?? []);
             final imgUrl = fotos.isNotEmpty ? fotos.first : null;
@@ -144,12 +141,7 @@ class _PisosViewState extends State<PisosView> {
             return InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PisoDetailScreen(pisoId: pisoId),
-                    ),
-                  );
+                Navigator.push(context, MaterialPageRoute(builder: (_) => PisoDetailScreen(pisoId: pisoId)));
               },
               child: Card(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -210,7 +202,7 @@ class _PisosViewState extends State<PisosView> {
 
                     IconButton(
                       icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : Colors.grey),
-                      onPressed: () => _onTapFavorite(pisoId),
+                      onPressed: () => _presionarFavorito(pisoId),
                     ),
                   ],
                 ),

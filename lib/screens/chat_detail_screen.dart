@@ -1,4 +1,3 @@
-// lib/screens/chat_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/scheduler.dart';
@@ -11,12 +10,12 @@ import 'profile_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String chatId;                       // id del chat
-  final Map<String, dynamic> partner;        // {id,nombre,foto_perfil}
+  final Map<String, dynamic> companero;        // {id,nombre,foto_perfil}
 
   const ChatDetailScreen({
     super.key,
     required this.chatId,
-    required this.partner,
+    required this.companero,
   });
 
   @override
@@ -28,10 +27,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   final _supabase   = Supabase.instance.client;
   final _controller = TextEditingController();
-  final _scrollCtrl = ScrollController();
+  final _ctrlScroll = ScrollController();
 
   late final String _meId;
-  int _selectedIndex = 2; // Mensajes
+  int _selectedIndex = 2;
 
   @override
   void initState() {
@@ -39,7 +38,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _meId = _supabase.auth.currentUser!.id;
   }
 
-  void _onNavTap(int idx) {
+  void _cambiarMenuInferior(int idx) {
     if (idx == _selectedIndex) return;
     Widget dest;
     switch (idx) {
@@ -65,7 +64,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     setState(() => _selectedIndex = idx);
   }
 
-  Future<void> _send() async {
+  Future<void> _enviarMensaje() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
@@ -73,21 +72,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     await _supabase.from('mensajes').insert({
       'chat_id'     : widget.chatId,
       'emisor_id'   : _meId,
-      'receptor_id' : widget.partner['id'],
+      'receptor_id' : widget.companero['id'],
       'mensaje'     : text,
       'visto'       : false,
     });
 
     // bajar scroll
     await Future.delayed(const Duration(milliseconds: 50));
-    _scrollCtrl.animateTo(
+    _ctrlScroll.animateTo(
       0,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
     );
   }
 
-  Widget _bubble(String msg, bool isMe) {
+  Widget _wgtMensaje(String msg, bool isMe) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -126,14 +125,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           children: [
             CircleAvatar(
               radius: 16,
-              backgroundImage: widget.partner['foto_perfil'] != null
-                  ? NetworkImage(widget.partner['foto_perfil'])
+              backgroundImage: widget.companero['foto_perfil'] != null
+                  ? NetworkImage(widget.companero['foto_perfil'])
                   : const AssetImage('assets/default_avatar.png')
               as ImageProvider,
             ),
             const SizedBox(width: 8),
             Text(
-              widget.partner['nombre'],
+              widget.companero['nombre'],
               style: const TextStyle(
                   color: accent, fontWeight: FontWeight.bold, fontSize: 18),
             ),
@@ -170,7 +169,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 });
 
                 return ListView.builder(
-                  controller: _scrollCtrl,
+                  controller: _ctrlScroll,
                   padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   reverse: true,
@@ -178,7 +177,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   itemBuilder: (_, i) {
                     final m = msgs[msgs.length - 1 - i];
                     final isMe = m['emisor_id'] == _meId;
-                    return _bubble(m['mensaje'], isMe);
+                    return _wgtMensaje(m['mensaje'], isMe);
                   },
                 );
               },
@@ -204,12 +203,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         hintText: 'Escribe un mensaje…',
                         border: InputBorder.none,
                       ),
-                      onSubmitted: (_) => _send(),
+                      onSubmitted: (_) => _enviarMensaje(),
                     ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.send, color: accent),
-                    onPressed: _send,
+                    onPressed: _enviarMensaje,
                   ),
                 ],
               ),
@@ -219,8 +218,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
 
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedIndex,
-        onBottomNavChanged: _onNavTap,
+        seleccionMenuInferior: _selectedIndex,
+        cambiarMenuInferior: _cambiarMenuInferior,
       ),
     );
   }

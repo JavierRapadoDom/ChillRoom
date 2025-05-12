@@ -1,4 +1,3 @@
-// lib/screens/piso_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,42 +19,42 @@ class PisoDetailScreen extends StatefulWidget {
 }
 
 class _PisoDetailScreenState extends State<PisoDetailScreen> {
-  /* ---------- constantes ---------- */
-  static const accent = Color(0xFFE3A62F);
+  /*  constantes  */
+  static const colorPrincipal = Color(0xFFE3A62F);
 
-  /* ---------- supabase & servicios ---------- */
+  /*  supabase & servicio  */
   final supabase      = Supabase.instance.client;
   final _favService   = FavoriteService();
 
-  /* ---------- estado ---------- */
+  /*  estado  */
   late Future<Map<String, dynamic>> _futurePiso;
-  Set<String> _myFavs = {};
-  late final PageController _pageCtrl;
-  int  _page                = 0;
-  int  _selectedBottomIndex  = -1;   // 0 = Home
+  Set<String> _misFavs = {};
+  late final PageController _ctrlPage;
+  int  _page = 0;
+  int  _seleccionMenuInferior  = -1;
 
   @override
   void initState() {
     super.initState();
-    _pageCtrl   = PageController();
+    _ctrlPage   = PageController();
     _futurePiso = _loadPiso();
-    _loadFavs();
+    _cargarFavoritos();
   }
 
   @override
   void dispose() {
-    _pageCtrl.dispose();
+    _ctrlPage.dispose();
     super.dispose();
   }
 
-  /* ─────────────────── DB helpers ─────────────────── */
-  Future<void> _loadFavs() async {
-    final favs = await _favService.getMyFavoritePisos();
-    if (mounted) setState(() => _myFavs = favs);
+
+  Future<void> _cargarFavoritos() async {
+    final favs = await _favService.obtenerPisosFavoritos();
+    if (mounted) setState(() => _misFavs = favs);
   }
 
   Future<Map<String, dynamic>> _loadPiso() async {
-    // 1️⃣ publicación + anfitrión
+    // publicación + anfitrión
     final raw = await supabase
         .from('publicaciones_piso')
         .select(r'''
@@ -76,7 +75,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
 
     final piso = Map<String, dynamic>.from(raw as Map);
 
-    // 2️⃣ compañeros (tabla sin tilde)
+    //  compañeros (tabla sin tilde)
     final compsRaw = await supabase
         .from('compañeros_piso')
         .select(r'''
@@ -92,7 +91,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
         .toList();
     piso['companeros'] = companeros;
 
-    // 3️⃣ resolver avatarUrl para anfitrión & compañeros
+    //  resolver avatarUrl para anfitrión & compañeros
     Map<String, dynamic> _withAvatar(Map<String, dynamic> u) {
       final perfil = u['perfiles'] as Map<String, dynamic>? ?? {};
       final fotos  = List<String>.from(perfil['fotos'] ?? []);
@@ -111,14 +110,14 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     return piso;
   }
 
-  /* ─────────────────── acciones ─────────────────── */
-  Future<void> _toggleFav() async {
-    await _favService.toggleFavorite(widget.pisoId);
-    await _loadFavs();
+  /* acciones  */
+  Future<void> _alternarFavoritos() async {
+    await _favService.alternarFavorito(widget.pisoId);
+    await _cargarFavoritos();
   }
 
-  void _onBottomNavChanged(int idx) {
-    if (idx == _selectedBottomIndex) return;
+  void _cambiarMenuInferior(int idx) {
+    if (idx == _seleccionMenuInferior) return;
 
     Widget? dest;
     switch (idx) {
@@ -129,11 +128,10 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     }
     if (dest != null) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest!));
-      setState(() => _selectedBottomIndex = idx);
+      setState(() => _seleccionMenuInferior = idx);
     }
   }
 
-  /* ─────────────────── UI helpers ─────────────────── */
   Widget _indicator(int len) => Positioned(
     bottom: 8,
     left: 0,
@@ -148,30 +146,28 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
           margin: const EdgeInsets.symmetric(horizontal: 3),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: i == _page ? accent : Colors.white54,
+            color: i == _page ? colorPrincipal : Colors.white54,
           ),
         ),
       ),
     ),
   );
 
-  /* ─────────────────── build ─────────────────── */
   @override
   Widget build(BuildContext context) {
-    final isFav = _myFavs.contains(widget.pisoId);
+    final isFav = _misFavs.contains(widget.pisoId);
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         leading: const BackButton(color: Colors.black),
         title: const Text('ChillRoom',
-            style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 20)),
+            style: TextStyle(color: colorPrincipal, fontWeight: FontWeight.bold, fontSize: 20)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
       ),
 
-      /* ---------------- cuerpo ---------------- */
       body: FutureBuilder<Map<String, dynamic>>(
         future: _futurePiso,
         builder: (_, snap) {
@@ -197,13 +193,12 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                /* -------- Carrusel -------- */
                 Stack(
                   children: [
                     SizedBox(
                       height: 250,
                       child: PageView.builder(
-                        controller: _pageCtrl,
+                        controller: _ctrlPage,
                         itemCount: fotos.length,
                         onPageChanged: (i) => setState(() => _page = i),
                         itemBuilder: (_, i) => Image.network(fotos[i], fit: BoxFit.cover),
@@ -219,7 +214,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           icon: const Icon(Icons.chevron_left, size: 32, color: Colors.white),
                           onPressed: _page == 0
                               ? null
-                              : () => _pageCtrl.previousPage(
+                              : () => _ctrlPage.previousPage(
                             duration: const Duration(milliseconds: 300),
                             curve: Curves.easeInOut,
                           ),
@@ -234,7 +229,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           icon: const Icon(Icons.chevron_right, size: 32, color: Colors.white),
                           onPressed: _page == fotos.length - 1
                               ? null
-                              : () => _pageCtrl.nextPage(
+                              : () => _ctrlPage.nextPage(
                             duration: const Duration(milliseconds: 300),
                             curve: Curves.easeInOut,
                           ),
@@ -246,7 +241,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                /* -------- dirección + favorito -------- */
+                /*  dirección + favorito  */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Row(
@@ -257,14 +252,14 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                       ),
                       IconButton(
                         icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, size: 28),
-                        color: accent,
-                        onPressed: _toggleFav,
+                        color: colorPrincipal,
+                        onPressed: _alternarFavoritos,
                       ),
                     ],
                   ),
                 ),
 
-                /* -------- ocupación / precio -------- */
+                /*  ocupación / precio  */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   child: Row(
@@ -272,12 +267,12 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                       Text('Ocupación: ${piso['ocupacion']}'),
                       const Spacer(),
                       Text('$precio €/mes',
-                          style: const TextStyle(color: accent, fontWeight: FontWeight.bold)),
+                          style: const TextStyle(color: colorPrincipal, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
 
-                /* -------- descripción -------- */
+                /*  descripción  */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   child: Column(
@@ -291,7 +286,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                   ),
                 ),
 
-                /* -------- anfitrión & compañeros -------- */
+                /*  anfitrión & compañeros  */
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   child: Row(
@@ -314,25 +309,25 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                         ],
                       ),
                       const Spacer(),
-                      if (!isMine)                               // ← solo si NO es mío
+                      if (!isMine)
                         Container(
                           width: 48,
                           height: 48,
-                          decoration: const BoxDecoration(color: accent, shape: BoxShape.circle),
+                          decoration: const BoxDecoration(color: colorPrincipal, shape: BoxShape.circle),
                           child: IconButton(
                             icon: const Icon(Icons.chat_bubble_outline,
                                 color: Colors.white, size: 24),
                             onPressed: () async {
                               final partnerId = host['id'] as String;
                               final chatId =
-                              await ChatService.instance.getOrCreateChat(partnerId);
+                              await ChatService.instance.obtenerOCrearChat(partnerId);
                               if (!mounted) return;
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => ChatDetailScreen(
                                     chatId: chatId,
-                                    partner: {
+                                    companero: {
                                       'id': host['id'],
                                       'nombre': host['nombre'],
                                       'foto_perfil': host['avatarUrl'],
@@ -352,10 +347,10 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
         },
       ),
 
-      /* ---------------- menú inferior ---------------- */
+      /*  menú inferior  */
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedBottomIndex,
-        onBottomNavChanged: _onBottomNavChanged,
+        seleccionMenuInferior: _seleccionMenuInferior,
+        cambiarMenuInferior: _cambiarMenuInferior,
       ),
     );
   }

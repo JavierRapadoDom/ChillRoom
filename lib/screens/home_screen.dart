@@ -1,4 +1,3 @@
-// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import '../widgets/app_menu.dart';
 import '../widgets/usuarios_view.dart';
@@ -15,21 +14,21 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedTabIndex = 0;      // 0 = Usuarios, 1 = Pisos
-  int _selectedBottomIndex = 0;   // 0=Home,1=Favoritos,2=Mensajes,3=Perfil
+  int _seleccionVista = 0; //o usuarios o pisos
+  int _seleccionMenuInferior = 0; // 0: Home, 1: Favoritos, 2: Mensajes, 3: Perfil
 
-  void _onToggleChanged(int index) {
-    setState(() => _selectedTabIndex = index);
+  void _cambiarVista(int index) {
+    setState(() => _seleccionVista = index);
   }
 
-  void _onBottomNavChanged(int index) {
-    if (index == _selectedBottomIndex) return;
-    setState(() => _selectedBottomIndex = index);
+  void _cambiarSeleccionMenuInferior(int index) {
+    if (index == _seleccionMenuInferior) return;
+    setState(() => _seleccionMenuInferior = index);
 
     Widget dest;
     switch (index) {
       case 0:
-        return; // Ya estamos en Home
+        return;
       case 1:
         dest = const FavoritesScreen();
         break;
@@ -93,20 +92,20 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 _buildToggleButton(
                   label: "Usuarios",
-                  selected: _selectedTabIndex == 0,
-                  onTap: () => _onToggleChanged(0),
+                  selected: _seleccionVista == 0,
+                  onTap: () => _cambiarVista(0),
                 ),
                 const SizedBox(width: 12),
                 _buildToggleButton(
                   label: "Pisos",
-                  selected: _selectedTabIndex == 1,
-                  onTap: () => _onToggleChanged(1),
+                  selected: _seleccionVista == 1,
+                  onTap: () => _cambiarVista(1),
                 ),
               ],
             ),
           ),
           Expanded(
-            child: _selectedTabIndex == 0
+            child: _seleccionVista == 0
                 ? const UsuariosView()
                 : const PisosView(),
           ),
@@ -115,8 +114,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // 3) Menú inferior usando solo AppMenu
       bottomNavigationBar: AppMenu(
-        selectedBottomIndex: _selectedBottomIndex,
-        onBottomNavChanged: _onBottomNavChanged,
+        seleccionMenuInferior: _seleccionMenuInferior,
+        cambiarMenuInferior: _cambiarSeleccionMenuInferior,
       ),
     );
   }
