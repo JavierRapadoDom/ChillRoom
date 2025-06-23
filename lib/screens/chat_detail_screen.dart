@@ -1,3 +1,4 @@
+// lib/screens/chat_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/scheduler.dart';
@@ -7,10 +8,11 @@ import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
+import 'user_details_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
-  final String chatId;                       // id del chat
-  final Map<String, dynamic> companero;        // {id,nombre,foto_perfil}
+  final String chatId;
+  final Map<String, dynamic> companero;
 
   const ChatDetailScreen({
     super.key,
@@ -23,11 +25,13 @@ class ChatDetailScreen extends StatefulWidget {
 }
 
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
-  static const accent = Color(0xFFE3A62F);
+  // Colores corporativos
+  static const Color accent     = Color(0xFFF0A92A);
+  static const Color sentBubble = Color(0xFF1E88E5);
 
-  final _supabase   = Supabase.instance.client;
-  final _controller = TextEditingController();
-  final _ctrlScroll = ScrollController();
+  final SupabaseClient _sb    = Supabase.instance.client;
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController      _ctrlScroll = ScrollController();
 
   late final String _meId;
   int _selectedIndex = 2;
@@ -35,12 +39,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _meId = _supabase.auth.currentUser!.id;
+    _meId = _sb.auth.currentUser!.id;
   }
 
   void _cambiarMenuInferior(int idx) {
     if (idx == _selectedIndex) return;
-    Widget dest;
+    late Widget dest;
     switch (idx) {
       case 0:
         dest = const HomeScreen();
@@ -69,7 +73,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (text.isEmpty) return;
     _controller.clear();
 
-    await _supabase.from('mensajes').insert({
+    await _sb.from('mensajes').insert({
       'chat_id'     : widget.chatId,
       'emisor_id'   : _meId,
       'receptor_id' : widget.companero['id'],
@@ -77,7 +81,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       'visto'       : false,
     });
 
-    // bajar scroll
+    // Scroll al final
     await Future.delayed(const Duration(milliseconds: 50));
     _ctrlScroll.animateTo(
       0,
@@ -86,22 +90,69 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Widget _wgtMensaje(String msg, bool isMe) {
+  Widget _mensajeBubble(String msg, bool isMe, String time) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 280),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isMe ? sentBubble : Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(isMe ? 18 : 4),
+              bottomRight: Radius.circular(isMe ? 4 : 18),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 4,
+                offset: const Offset(2, 2),
+              )
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              Text(
+                msg,
+                style: TextStyle(
+                  color: isMe ? Colors.white : Colors.black87,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                time,
+                style: TextStyle(
+                  color: isMe ? Colors.white70 : Colors.grey,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dateSeparator(DateTime date) {
+    final formatted = "${date.day}/${date.month}/${date.year}";
+    return Center(
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
-          color: isMe ? accent : Colors.grey[200],
-          borderRadius: BorderRadius.circular(16),
+          color: Colors.black12,
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
-          msg,
-          style: TextStyle(
-            color: isMe ? Colors.white : Colors.black87,
-            fontSize: 15,
-          ),
+          formatted,
+          style: const TextStyle(fontSize: 12, color: Colors.black54),
         ),
       ),
     );
@@ -109,117 +160,200 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final stream = _supabase
+    final stream = _sb
         .from('mensajes')
         .stream(primaryKey: ['id'])
         .eq('chat_id', widget.chatId)
         .order('created_at', ascending: true);
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: const BackButton(color: Colors.black),
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundImage: widget.companero['foto_perfil'] != null
-                  ? NetworkImage(widget.companero['foto_perfil'])
-                  : const AssetImage('assets/default_avatar.png')
-              as ImageProvider,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              widget.companero['nombre'],
-              style: const TextStyle(
-                  color: accent, fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-          ],
+      // Degradado de fondo
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.white, Color(0xFFFDF7E2)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
         ),
-      ),
-
-      body: Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: stream,
-              builder: (_, snap) {
-                if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final msgs = snap.data!;
-
-                // Marcar como vistos los mensajes recibidos sin leer
-                SchedulerBinding.instance.addPostFrameCallback((_) async {
-                  final toMark = msgs
-                      .where((m) =>
-                  m['receptor_id'] == _meId && m['visto'] == false)
-                      .map((m) => m['id'])
-                      .toList();
-                  if (toMark.isNotEmpty) {
-                    final listStr = toMark.join(',');
-                    await _supabase
-                        .from('mensajes')
-                        .update({'visto': true})
-                        .or('id.in.(${toMark.join(",")})');
-
-                  }
-                });
-
-                return ListView.builder(
-                  controller: _ctrlScroll,
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  reverse: true,
-                  itemCount: msgs.length,
-                  itemBuilder: (_, i) {
-                    final m = msgs[msgs.length - 1 - i];
-                    final isMe = m['emisor_id'] == _meId;
-                    return _wgtMensaje(m['mensaje'], isMe);
-                  },
-                );
-              },
-            ),
-          ),
-
-          SafeArea(
-            top: false,
-            child: Container(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Colors.grey)),
-                color: Colors.white,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText: 'Escribe un mensaje…',
-                        border: InputBorder.none,
-                      ),
-                      onSubmitted: (_) => _enviarMensaje(),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // AppBar personalizado
+              Padding(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.black87),
+                      onPressed: () => Navigator.pop(context),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.send, color: accent),
-                    onPressed: _enviarMensaje,
-                  ),
-                ],
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                UserDetailsScreen(userId: widget.companero['id']),
+                          ),
+                        );
+                      },
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundImage: widget.companero['foto_perfil'] != null
+                                ? NetworkImage(widget.companero['foto_perfil'])
+                                : const AssetImage(
+                                'assets/default_avatar.png')
+                            as ImageProvider,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            widget.companero['nombre'],
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: Icon(Icons.phone, color: accent),
+                      onPressed: () {
+                        // Llamada telefónica (placeholder)
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.info_outline, color: accent),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                UserDetailsScreen(userId: widget.companero['id']),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
 
-      bottomNavigationBar: AppMenu(
-        seleccionMenuInferior: _selectedIndex,
-        cambiarMenuInferior: _cambiarMenuInferior,
+              // Lista de mensajes
+              Expanded(
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: stream,
+                  builder: (_, snap) {
+                    if (!snap.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final msgs = snap.data!;
+                    DateTime? lastDate;
+
+                    SchedulerBinding.instance
+                        .addPostFrameCallback((_) async {
+                      // Marcar mensajes vistos
+                      final toMark = msgs
+                          .where((m) =>
+                      m['receptor_id'] == _meId && m['visto'] == false)
+                          .map((m) => m['id'])
+                          .toList();
+                      if (toMark.isNotEmpty) {
+                        await _sb
+                            .from('mensajes')
+                            .update({'visto': true})
+                            .or('id.in.(${toMark.join(",")})');
+                      }
+                    });
+
+                    return ListView.builder(
+                      controller: _ctrlScroll,
+                      padding:
+                      const EdgeInsets.symmetric(vertical: 4),
+                      reverse: true,
+                      itemCount: msgs.length,
+                      itemBuilder: (_, i) {
+                        final m = msgs[msgs.length - 1 - i];
+                        final ts = DateTime.parse(m['created_at']).toLocal();
+                        final isMe = m['emisor_id'] == _meId;
+                        final timeLabel =
+                            "${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}";
+
+                        List<Widget> children = [];
+
+                        // Si el día cambió, insertar separador
+                        if (lastDate == null ||
+                            lastDate!.day != ts.day ||
+                            lastDate!.month != ts.month) {
+                          children.add(_dateSeparator(ts));
+                          lastDate = ts;
+                        }
+
+                        children.add(_mensajeBubble(m['mensaje'], isMe, timeLabel));
+                        return Column(children: children);
+                      },
+                    );
+                  },
+                ),
+              ),
+
+              // Input de texto estilizado
+              Container(
+                margin: const EdgeInsets.all(12),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.add_circle_outline, color: accent),
+                      onPressed: () {
+                        // Adjuntar multimedia
+                      },
+                    ),
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: const InputDecoration(
+                          hintText: 'Escribe un mensaje…',
+                          border: InputBorder.none,
+                        ),
+                        onSubmitted: (_) => _enviarMensaje(),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.send, color: accent),
+                      onPressed: _enviarMensaje,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Menú inferior
+              AppMenu(
+                seleccionMenuInferior: _selectedIndex,
+                cambiarMenuInferior: _cambiarMenuInferior,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

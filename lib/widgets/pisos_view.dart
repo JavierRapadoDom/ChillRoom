@@ -11,6 +11,7 @@ class PisosView extends StatefulWidget {
 }
 
 class _PisosViewState extends State<PisosView> {
+  static const Color accent = Color(0xFFE3A62F);
   final SupabaseClient _supabase = Supabase.instance.client;
   final FavoriteService _favService = FavoriteService();
 
@@ -31,186 +32,179 @@ class _PisosViewState extends State<PisosView> {
   }
 
   Future<List<Map<String, dynamic>>> _cargarPisos() async {
-    final supabase = Supabase.instance.client;
-
-    // 1. Publicaciones
-    final pubsRaw = await supabase
+    final pubsRaw = await _supabase
         .from('publicaciones_piso')
         .select('''
-        id,
-        direccion,
-        descripcion,
-        precio,
-        numero_habitaciones,
-        metros_cuadrados,
-        fotos,
-        companeros_id,
-        anfitrion_id,
-        created_at
-      ''')
+          id,
+          direccion,
+          precio,
+          numero_habitaciones,
+          metros_cuadrados,
+          fotos,
+          companeros_id,
+          anfitrion:usuarios!publicaciones_piso_anfitrion_id_fkey(id,nombre,perfiles!perfiles_usuario_id_fkey(fotos))
+        ''')
         .order('created_at', ascending: false);
 
-    final publicaciones = (pubsRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final pubs = (pubsRaw as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
 
-    // 2. IDs de anfitriones
-    final hostIds = publicaciones.map((p) => p['anfitrion_id'] as String).toSet().toList();
-    if (hostIds.isEmpty) return publicaciones;
-
-    // 3. Traer nombres de anfitriones
-    final usersRaw = await supabase.from('usuarios').select('id, nombre').or(hostIds.map((id) => 'id.eq.$id').join(','));
-    final todosUsuarios = (usersRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-
-    // 4. Traer perfiles (fotos) de anfitriones
-    final perfRaw = await supabase.from('perfiles').select('usuario_id, fotos').or(hostIds.map((id) => 'usuario_id.eq.$id').join(','));
-    final allPerfiles = (perfRaw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-
-    // 5. Construir hostMap con avatarUrl bien resuelto
-    final hostMap = <String, Map<String, dynamic>>{};
-    for (final u in todosUsuarios) {
-      final id = u['id'] as String;
-      // Busscamos su perfil
-      final perfil = allPerfiles.firstWhere((p) => p['usuario_id'] == id, orElse: () => {'fotos': <String>[]});
+    // Añadir avatar anfitrión y ocupación
+    for (final p in pubs) {
+      final perfil = p['anfitrion']['perfiles'] as Map<String,dynamic>? ?? {};
       final fotos = List<String>.from(perfil['fotos'] ?? []);
-      String? avatarUrl;
-      if (fotos.isNotEmpty) {
-        final rawPath = fotos.first;
-        if (rawPath.startsWith('http')) {
-          avatarUrl = rawPath;
-        } else {
-          avatarUrl = supabase.storage.from('profile.photos').getPublicUrl(rawPath);
-        }
-      }
-
-      hostMap[id] = {
-        'nombre': u['nombre'] as String,
-        'avatarUrl': avatarUrl, // puede quedar nulo
-      };
+      p['anfitrion']['avatarUrl'] = fotos.isNotEmpty
+          ? (fotos.first.startsWith('http')
+          ? fotos.first
+          : _supabase.storage.from('profile.photos').getPublicUrl(fotos.first))
+          : null;
+      final total = p['numero_habitaciones'] as int;
+      final used = (p['companeros_id'] as List).length;
+      p['ocupacion'] = '$used/$total';
     }
 
-    // 6. Mezclar datos
-    for (final pub in publicaciones) {
-      final total = pub['numero_habitaciones'] as int;
-      final used = (pub['companeros_id'] as List).length;
-      pub['ocupacion'] = '$used/$total';
-      pub['anfitrion'] = hostMap[pub['anfitrion_id'] as String];
-    }
-
-    return publicaciones;
+    return pubs;
   }
 
-  void _presionarFavorito(String pisoId) async {
-    await _favService.alternarFavorito(pisoId);
+  void _toggleFav(String id) async {
+    await _favService.alternarFavorito(id);
     final favs = await _favService.obtenerPisosFavoritos();
     setState(() => _misFavoritos = favs);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _futurePisos,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-        final pisos = snapshot.data!;
-        if (pisos.isEmpty) {
-          return const Center(child: Text('No hay pisos disponibles'));
-        }
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFF9F3E9), Colors.white],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _futurePisos,
+        builder: (ctx, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final pisos = snap.data!;
+          if (pisos.isEmpty) {
+            return const Center(child: Text('No hay pisos disponibles'));
+          }
+          return RefreshIndicator(
+            onRefresh: () async { _cargarTodo(); setState(() {}); },
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+              itemCount: pisos.length,
+              itemBuilder: (ctx, i) {
+                final p = pisos[i];
+                final fotos = List<String>.from(p['fotos'] ?? []);
+                final img = fotos.isNotEmpty ? fotos.first : null;
+                final host = p['anfitrion'] as Map<String, dynamic>?;
+                final isFav = _misFavoritos.contains(p['id']);
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: pisos.length + 1,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return const Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: Text('Mejores elecciones para ti', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              );
-            }
-
-            final piso = pisos[index - 1];
-            final pisoId = piso['id'] as String;
-            final isFav = _misFavoritos.contains(pisoId);
-            final host = piso['anfitrion'] as Map<String, dynamic>?;
-            final fotos = List<String>.from(piso['fotos'] ?? []);
-            final imgUrl = fotos.isNotEmpty ? fotos.first : null;
-
-            return InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => PisoDetailScreen(pisoId: pisoId)));
-              },
-              child: Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                margin: const EdgeInsets.only(bottom: 16),
-                elevation: 4,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
-                      child:
-                          imgUrl != null
-                              ? Image.network(imgUrl, width: 100, height: 100, fit: BoxFit.cover)
-                              : Container(width: 100, height: 100, color: Colors.grey[200], child: const Icon(Icons.image_outlined, size: 40)),
+                return GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PisoDetailScreen(pisoId: p['id']),
                     ),
-
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(piso['direccion'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Text('${piso['precio']}€/mes', style: const TextStyle(color: Color(0xFFE3A62F))),
-                                const SizedBox(width: 8),
-                                Text('Ocupación: ${piso['ocupacion']}', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                              ],
+                  ),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    height: 240,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0,4))],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          img != null
+                              ? Image.network(img, fit: BoxFit.cover)
+                              : Container(color: Colors.grey[300]),
+                          // Gradiente para legibilidad
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [Colors.black45, Colors.transparent],
+                              ),
                             ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                const Icon(Icons.bed_outlined, size: 16),
-                                Text(' ${piso['numero_habitaciones']} hab.  '),
-                                const Icon(Icons.square_foot, size: 16),
-                                Text(' ${piso['metros_cuadrados']} m²'),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 12,
-                                  backgroundImage:
-                                      (host != null && host['avatarUrl'] != null)
-                                          ? NetworkImage(host['avatarUrl'])
-                                          : const AssetImage('assets/default_avatar.png') as ImageProvider,
+                          ),
+                          Positioned(
+                            top: 16,
+                            right: 16,
+                            child: GestureDetector(
+                              onTap: () => _toggleFav(p['id']),
+                              child: CircleAvatar(
+                                backgroundColor: Colors.white70,
+                                child: Icon(
+                                  isFav ? Icons.favorite : Icons.favorite_border,
+                                  color: accent,
                                 ),
-                                const SizedBox(width: 6),
-                                Text(host?['nombre'] as String? ?? 'Anfitrión'),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 16,
+                            left: 16,
+                            right: 16,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  p['direccion'],
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${p['precio']}€/mes · Ocupación: ${p['ocupacion']}',
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    if (host?['avatarUrl'] != null)
+                                      CircleAvatar(
+                                        radius: 16,
+                                        backgroundImage: NetworkImage(host!['avatarUrl']),
+                                      )
+                                    else
+                                      CircleAvatar(
+                                        radius: 16,
+                                        backgroundColor: Colors.white70,
+                                        child: Icon(Icons.person, color: accent),
+                                      ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      host?['nombre'] ?? 'Anfitrión',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-
-                    IconButton(
-                      icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : Colors.grey),
-                      onPressed: () => _presionarFavorito(pisoId),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 }

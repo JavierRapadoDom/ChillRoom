@@ -1,3 +1,4 @@
+// lib/screens/profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,7 +19,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _auth = AuthService();
   late final SupabaseClient _supabase;
-  int _seleccionMenuInferior = 3;
+  int _selectedBottom = 3;
 
   @override
   void initState() {
@@ -26,109 +27,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _supabase = Supabase.instance.client;
   }
 
-  String _darFormatoRol(String rol) {
-    switch (rol) {
-      case 'busco_piso':
-        return 'Busco piso';
-      case 'busco_compañero':
-        return 'Busco compañero';
-      default:
-        return 'Solo explorando';
-    }
-  }
-
-  Future<Map<String, dynamic>> _cargarDatosUsuario() async {
+  Future<Map<String, dynamic>> _loadData() async {
     final uid = _supabase.auth.currentUser!.id;
-
     final user = await _supabase
         .from('usuarios')
         .select('nombre, edad, rol')
         .eq('id', uid)
         .single();
-
     final prof = await _supabase
         .from('perfiles')
         .select('biografia, estilo_vida, deportes, entretenimiento, fotos')
         .eq('usuario_id', uid)
         .single();
-
-    final pisos = await _supabase
+    final flats = await _supabase
         .from('publicaciones_piso')
         .select('id, direccion, ciudad, fotos')
         .eq('anfitrion_id', uid);
-    final piso = (pisos as List).isNotEmpty ? pisos.first : null;
+    final flat = (flats as List).isNotEmpty ? flats.first : null;
 
     String? avatar;
-    final fotosProf = List<String>.from(prof['fotos'] ?? []);
-    if (fotosProf.isNotEmpty) {
-      avatar = fotosProf.first.startsWith('http')
-          ? fotosProf.first
-          : _supabase.storage.from('profile.photos').getPublicUrl(fotosProf.first);
+    final fotos = List<String>.from(prof['fotos'] ?? []);
+    if (fotos.isNotEmpty) {
+      avatar = fotos.first.startsWith('http')
+          ? fotos.first
+          : _supabase.storage.from('profile.photos').getPublicUrl(fotos.first);
     }
 
     return {
       'nombre': user['nombre'],
       'edad': user['edad'],
-      'rol': _darFormatoRol(user['rol']),
-      'biografia': prof['biografia'] ?? '',
+      'rol': _formatRole(user['rol']),
+      'bio': prof['biografia'] ?? '',
       'intereses': [
         ...List<String>.from(prof['estilo_vida'] ?? []),
         ...List<String>.from(prof['deportes'] ?? []),
         ...List<String>.from(prof['entretenimiento'] ?? []),
       ],
       'avatar': avatar,
-      'piso': piso,
+      'flat': flat,
     };
   }
 
-  void _abrirDialogoBio(String currentBio) {
-    final ctrl = TextEditingController(text: currentBio);
+  String _formatRole(String r) {
+    switch (r) {
+      case 'busco_piso': return '🏠 Busco piso';
+      case 'busco_compañero': return '🤝 Busco compañero';
+      default: return '🔍 Explorando';
+    }
+  }
 
+  void _openBioDialog(String current) {
+    final ctrl = TextEditingController(text: current);
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Biografía'),
+      builder: (_) => AlertDialog(
+        title: const Text('Editar Biografía'),
         content: TextField(
           controller: ctrl,
-          minLines: 3,
-          maxLines: 5,
+          maxLines: 4,
           decoration: const InputDecoration(
             hintText: 'Cuéntanos algo sobre ti',
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancelar'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE3A62F),
-              foregroundColor: Colors.white,
-            ),
             onPressed: () async {
-              final texto = ctrl.text.trim();
+              final txt = ctrl.text.trim();
               final uid = _supabase.auth.currentUser!.id;
-              try {
-                await _supabase
-                    .from('perfiles')
-                    .upsert(
-                  {'usuario_id': uid, 'biografia': texto},
-                  onConflict: 'usuario_id',
-                );
-                if (!mounted) return;
-                Navigator.pop(dialogContext);
-                setState(() {}); // refresh
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Biografía guardada')),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error: $e')),
-                );
-              }
+              await _supabase.from('perfiles').upsert(
+                {'usuario_id': uid, 'biografia': txt},
+                onConflict: 'usuario_id',
+              );
+              Navigator.pop(context);
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Biografía actualizada')));
             },
             child: const Text('Guardar'),
           ),
@@ -137,27 +111,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _cambiarMenuInferior(int idx) {
-    if (idx == _seleccionMenuInferior) return;
-    late Widget screen;
+  void _onTapBottom(int idx) {
+    if (idx == _selectedBottom) return;
+    Widget dest;
     switch (idx) {
-      case 0:
-        screen = const HomeScreen();
-        break;
-      case 1:
-        screen = const FavoritesScreen();
-        break;
-      case 2:
-        screen = const MessagesScreen();
-        break;
-      default:
-        screen = const ProfileScreen();
+      case 0: dest = const HomeScreen(); break;
+      case 1: dest = const FavoritesScreen(); break;
+      case 2: dest = const MessagesScreen(); break;
+      default: dest = const ProfileScreen();
     }
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
-    _seleccionMenuInferior = idx;
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
+    _selectedBottom = idx;
   }
 
-  void _cerrarSesion() async {
+  void _signOut() async {
     await _auth.cerrarSesion();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
@@ -168,189 +135,180 @@ class _ProfileScreenState extends State<ProfileScreen> {
     const accent = Color(0xFFE3A62F);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF9F3E9),
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          'ChillRoom',
-          style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 20),
-        ),
         centerTitle: true,
+        title: const Text('Perfil', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
       ),
       body: FutureBuilder<Map<String, dynamic>>(
-        future: _cargarDatosUsuario(),
-        builder: (c, snap) {
+        future: _loadData(),
+        builder: (ctx, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) {
-            return Center(child: Text('Error: ${snap.error}'));
-          }
           final d = snap.data!;
           final avatar = d['avatar'] as String?;
-          final intereses = d['intereses'] as List<String>;
-          final piso = d['piso'] as Map<String, dynamic>?;
-
-          String? miniUrl;
-          if (piso != null &&
-              piso['fotos'] != null &&
-              (piso['fotos'] as List).isNotEmpty) {
-            final first = (piso['fotos'] as List).first as String;
-            miniUrl = first.startsWith('http')
-                ? first
-                : _supabase.storage.from('flat.photos').getPublicUrl(first);
-          }
+          final interests = d['intereses'] as List<String>;
+          final flat = d['flat'] as Map<String, dynamic>?;
 
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Center(
+                // Avatar + nombre
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFE3A62F), Color(0xFFF0A92A)],
+                    ),
+                  ),
                   child: CircleAvatar(
                     radius: 60,
-                    backgroundImage: avatar != null
-                        ? NetworkImage(avatar)
-                        : const AssetImage('assets/default_avatar.png') as ImageProvider,
+                    backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                    child: avatar == null ? const Icon(Icons.person, size: 60, color: Colors.white) : null,
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
+                Text('${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text(
-                  d['rol'],
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
+                Text(d['rol'], style: const TextStyle(color: Colors.grey, fontSize: 16)),
+
                 const SizedBox(height: 24),
-                const Text('Tu piso',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                if (piso == null) ...[
-                  const Text('Aún no has añadido tu piso',
-                      style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const CreateFlatInfoScreen())),
+                // Tarjeta del piso
+                if (flat != null) ...[
+                  _FlatCardPremium(flat: flat),
+                  const SizedBox(height: 24),
+                ] else ...[
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.add_home),
+                    label: const Text('Añadir mi piso'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: accent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     ),
-                    child: const Text('Añadir piso',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ] else ...[
-                  GestureDetector(
-                    onTap: () =>
-                        Navigator.pushNamed(context, '/flat-detail', arguments: piso['id']),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8F9FF),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: SizedBox(
-                              width: 80,
-                              height: 80,
-                              child: miniUrl != null
-                                  ? Image.network(miniUrl, fit: BoxFit.cover)
-                                  : Container(
-                                color: Colors.grey[300],
-                                child: const Icon(Icons.home,
-                                    size: 36, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                piso['direccion'] as String? ?? '',
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                piso['ciudad'] as String? ?? '',
-                                style: TextStyle(
-                                    color: Colors.grey[600], fontSize: 15),
-                              ),
-                            ],
-                          )
-                        ],
-                      ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const CreateFlatInfoScreen()),
                     ),
                   ),
+                  const SizedBox(height: 24),
                 ],
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Biografía',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    TextButton(
-                      onPressed: () => _abrirDialogoBio(d['biografia']),
-                      child: Text(
-                        (d['biografia'] as String).isEmpty ? 'Añadir' : 'Editar',
-                        style: const TextStyle(color: accent),
-                      ),
+
+                // Biografía
+                _SectionTitle(title: 'Biografía'),
+                const SizedBox(height: 8),
+                Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 2,
+                  child: ListTile(
+                    title: Text(d['bio'].isEmpty ? 'Sin biografía' : d['bio']),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.edit, color: accent),
+                      onPressed: () => _openBioDialog(d['bio']),
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Text(d['biografia'], style: TextStyle(color: Colors.grey[700])),
+
                 const SizedBox(height: 24),
-                const Text('Intereses',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 6),
+                // Intereses
+                _SectionTitle(title: 'Intereses'),
+                const SizedBox(height: 12),
                 Wrap(
-                  spacing: 12,
+                  spacing: 8,
                   runSpacing: 8,
-                  children: intereses
-                      .map((i) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.grey.shade400)),
-                    child: Text(i),
-                  ))
-                      .toList(),
+                  children: interests.map((i) => Chip(
+                    label: Text(i),
+                    backgroundColor: accent.withOpacity(0.2),
+                    avatar: const Icon(Icons.star, size: 16, color: accent),
+                  )).toList(),
                 ),
-                const SizedBox(height: 32),
+
+                const SizedBox(height: 40),
+                // Cerrar sesión
                 ElevatedButton(
-                  onPressed: _cerrarSesion,
+                  onPressed: _signOut,
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: accent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                  child: const Text('Cerrar sesión',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                    backgroundColor: Colors.redAccent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  ),
+                  child: const Text('Cerrar sesión', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
+                const SizedBox(height: 20),
               ],
             ),
           );
         },
       ),
       bottomNavigationBar: AppMenu(
-        seleccionMenuInferior: _seleccionMenuInferior,
-        cambiarMenuInferior: _cambiarMenuInferior,
+        seleccionMenuInferior: _selectedBottom,
+        cambiarMenuInferior: _onTapBottom,
       ),
+    );
+  }
+}
+
+class _FlatCardPremium extends StatelessWidget {
+  final Map<String, dynamic> flat;
+  const _FlatCardPremium({required this.flat});
+
+  @override
+  Widget build(BuildContext context) {
+    final fotos = List<String>.from(flat['fotos'] ?? []);
+    final url = fotos.isNotEmpty
+        ? (fotos.first.startsWith('http')
+        ? fotos.first
+        : Supabase.instance.client.storage.from('flat.photos').getPublicUrl(fotos.first))
+        : null;
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.hardEdge,
+      child: Column(
+        children: [
+          if (url != null)
+            Image.network(url, height: 160, width: double.infinity, fit: BoxFit.cover)
+          else
+            Container(height: 160, color: Colors.grey[300], child: const Icon(Icons.home, size: 80)),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(flat['direccion'] ?? '',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton(
+                  child: const Text('Ver'),
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                  onPressed: () => Navigator.pushNamed(context, '/flat-detail', arguments: flat['id']),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  const _SectionTitle({required this.title});
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
     );
   }
 }

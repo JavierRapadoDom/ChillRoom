@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../screens/chat_detail_screen.dart';
 import '../screens/user_details_screen.dart';
-import '../services/chat_service.dart';
+import '../services/friend_request_service.dart';
 
 class UsuariosView extends StatefulWidget {
   const UsuariosView({super.key});
@@ -13,28 +12,36 @@ class UsuariosView extends StatefulWidget {
 }
 
 class _UsuariosViewState extends State<UsuariosView> {
-  final _supabase = Supabase.instance.client;
-  late Future<List<Map<String, dynamic>>> _futureUsers;
+  static const Color accent = Color(0xFFE3A62F);
+  final SupabaseClient _sb = Supabase.instance.client;
+  final _reqSvc = FriendRequestService.instance;
 
-  int _seleccionActual = 0;
-  AsyncSnapshot<List<Map<String, dynamic>>>? _futureSnapshot;
+  late Future<List<Map<String, dynamic>>> _futureUsers;
+  late PageController _pageCtrl;
+  int _currentIdx = 0;
 
   @override
   void initState() {
     super.initState();
-    _futureUsers = _cargarUsuarios();
+    _futureUsers = _loadUsers();
+    _pageCtrl = PageController(viewportFraction: 0.83);
   }
 
-  Future<List<Map<String, dynamic>>> _cargarUsuarios() async {
-    final me = _supabase.auth.currentUser!;
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    super.dispose();
+  }
 
-    final rows = await _supabase
+  Future<List<Map<String, dynamic>>> _loadUsers() async {
+    final me = _sb.auth.currentUser!.id;
+    final rows = await _sb
         .from('usuarios')
-        .select('''
+        .select(r'''
           id,
           nombre,
           edad,
-          perfiles!perfiles_usuario_id_fkey (
+          perfiles:perfiles!perfiles_usuario_id_fkey(
             biografia,
             estilo_vida,
             deportes,
@@ -42,180 +49,211 @@ class _UsuariosViewState extends State<UsuariosView> {
             fotos
           )
         ''')
-        .neq('id', me.id);
+        .neq('id', me);
 
-    final users = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-
-    for (final u in users) {
+    return (rows as List).map<Map<String, dynamic>>((raw) {
+      final u = Map<String, dynamic>.from(raw as Map);
       final p = u['perfiles'] as Map<String, dynamic>? ?? {};
 
-      u['biografia'] = (p['biografia'] ?? '') as String;
-
-      u['intereses'] = <String>[
-        ...List<String>.from(p['estilo_vida'] ?? []),
-        ...List<String>.from(p['deportes'] ?? []),
-        ...List<String>.from(p['entretenimiento'] ?? []),
-      ];
-
+      String? avatar;
       final fotos = List<String>.from(p['fotos'] ?? []);
-      u['foto'] =
-          fotos.isNotEmpty
-              ? (fotos.first.startsWith('http') ? fotos.first : _supabase.storage.from('profile.photos').getPublicUrl(fotos.first))
-              : null;
-    }
+      if (fotos.isNotEmpty) {
+        avatar = fotos.first.startsWith('http')
+            ? fotos.first
+            : _sb.storage
+            .from('profile.photos')
+            .getPublicUrl(fotos.first);
+      }
 
-    return users;
+      return {
+        'id': u['id'],
+        'nombre': u['nombre'],
+        'edad': u['edad'],
+        'avatar': avatar,
+        'biografia': p['biografia'] ?? '',
+        'intereses': [
+          ...List<String>.from(p['estilo_vida'] ?? []),
+          ...List<String>.from(p['deportes'] ?? []),
+          ...List<String>.from(p['entretenimiento'] ?? []),
+        ],
+      };
+    }).toList();
   }
 
-  List<Map<String, dynamic>> get _users => (_futureSnapshot?.data ?? <Map<String, dynamic>>[]);
-
-  void _descartar() {
-    setState(() {
-      if (_seleccionActual < _users.length - 1) _seleccionActual++;
+  void _goToNext() {
+    _futureUsers.then((users) {
+      if (_currentIdx < users.length - 1) {
+        _currentIdx++;
+        _pageCtrl.animateToPage(
+          _currentIdx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+        setState(() {});
+      }
     });
-  }
-
-  Future<void> _contactar() async {
-    final u = _users[_seleccionActual];
-    final partnerId = u['id'] as String;
-    final partnerName = u['nombre'] as String;
-
-    final chatId = await ChatService.instance.obtenerOCrearChat(partnerId);
-
-    if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ChatDetailScreen(chatId: chatId, companero: {'id': partnerId, 'nombre': partnerName, 'foto_perfil': u['foto']}),
-      ),
-    );
-  }
-
-  void _irADetalle() {
-    final u = _users[_seleccionActual];
-    Navigator.push(context, MaterialPageRoute(builder: (_) => UserDetailsScreen(userId: u['id'] as String)));
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _futureUsers,
-      builder: (ctx, snap) {
-        _futureSnapshot = snap;
+      builder: (_, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {
-          return Center(child: Text('Error: ${snap.error}'));
+          return Center(child: Text('Error cargando usuarios:\n${snap.error}'));
         }
 
         final users = snap.data!;
         if (users.isEmpty) {
           return const Center(child: Text('No hay otros usuarios disponibles.'));
         }
-        final user = users[_seleccionActual];
 
         return Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(vertical: 16),
           child: Column(
             children: [
-              const SizedBox(height: 12),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Usuarios acordes a tus gustos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 12),
-
-              // Tarjeta de usuario
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: _irADetalle,
-                  child: Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    elevation: 5,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          user['foto'] != null ? Image.network(user['foto'], fit: BoxFit.cover) : Container(color: Colors.grey[200]),
-                          /* gradiente */
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [Colors.black.withOpacity(0.75), Colors.transparent],
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            left: 16,
-                            right: 16,
-                            bottom: 20,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${user['nombre']}, ${user['edad'] ?? ''}',
-                                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 10),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 4,
-                                  children:
-                                      (user['intereses'] as List<String>)
-                                          .take(6)
-                                          .map(
-                                            (i) => Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                              decoration: BoxDecoration(color: const Color(0xFFE3A62F), borderRadius: BorderRadius.circular(20)),
-                                              child: Text(i, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                                            ),
-                                          )
-                                          .toList(),
-                                ),
-                                const SizedBox(height: 8),
-                                if ((user['biografia'] as String).isNotEmpty)
-                                  Text(
-                                    user['biografia'],
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Usuarios acordes a tus gustos',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
 
-              const SizedBox(height: 20),
+              // Carousel de perfiles
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageCtrl,
+                  onPageChanged: (i) => setState(() => _currentIdx = i),
+                  itemCount: users.length,
+                  itemBuilder: (ctx, idx) {
+                    final user = users[idx];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => UserDetailsScreen(
+                              userId: user['id'] as String,
+                            ),
+                          ),
+                        ),
+                        child: Card(
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20)),
+                          elevation: 8,
+                          clipBehavior: Clip.hardEdge,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              // Foto de perfil
+                              user['avatar'] != null
+                                  ? Image.network(
+                                user['avatar'],
+                                fit: BoxFit.cover,
+                              )
+                                  : Container(color: Colors.grey[300]),
+                              // Degradado
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.topCenter,
+                                    colors: [
+                                      Colors.black.withOpacity(0.7),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              // Info overlay
+                              Positioned(
+                                left: 16,
+                                right: 16,
+                                bottom: 24,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${user['nombre']}, ${user['edad'] ?? ''}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 6,
+                                      children: (user['intereses']
+                                      as List<String>)
+                                          .take(6)
+                                          .map((i) => Chip(
+                                        label: Text(i,
+                                            style: const TextStyle(
+                                                color: Colors.white)),
+                                        backgroundColor:
+                                        accent.withOpacity(0.8),
+                                        padding:
+                                        const EdgeInsets.all(4),
+                                      ))
+                                          .toList(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 24),
+              // Botones acción
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   FloatingActionButton(
                     heroTag: 'skip',
                     backgroundColor: Colors.white,
-                    elevation: 4,
-                    onPressed: _descartar,
-                    child: const Icon(Icons.close, color: Colors.red),
+                    elevation: 6,
+                    onPressed: _goToNext,
+                    child: const Icon(Icons.close, color: Colors.red, size: 32),
                   ),
                   FloatingActionButton(
-                    heroTag: 'contact',
-                    backgroundColor: const Color(0xFFE3A62F),
-                    elevation: 4,
-                    onPressed: _contactar,
-                    child: const Icon(Icons.chevron_right, color: Colors.white),
+                    heroTag: 'add',
+                    backgroundColor: accent,
+                    elevation: 6,
+                    onPressed: () async {
+                      final user = users[_currentIdx];
+                      await _reqSvc.sendRequest(user['id'] as String);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Solicitud de chat enviada'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                      _goToNext();
+                    },
+                    child: const Icon(Icons.check, color: Colors.white, size: 32),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
             ],
           ),
         );
