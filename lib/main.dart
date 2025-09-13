@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';  // 👈 importa Google Fonts
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'supabase_client.dart';
@@ -21,13 +24,22 @@ class NoAnimationPageTransitionsBuilder extends PageTransitionsBuilder {
       Animation<double> animation,
       Animation<double> secondaryAnimation,
       Widget child,
-      ) =>
-      child;
+      ) => child;
+}
+
+Future<void> _initMobileAdsIfSupported() async {
+  // No inicializar en Web/desktop.
+  if (kIsWeb) return;
+  if (defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS) {
+    await MobileAds.instance.initialize();
+  }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initSupabase();
+  await _initMobileAdsIfSupported(); // 👈 importante
   runApp(const MyApp());
 }
 
@@ -45,7 +57,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'ChauPhilomeneOne',
+        textTheme: GoogleFonts.nunitoTextTheme(),
         scaffoldBackgroundColor: Colors.white,
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
@@ -57,10 +69,7 @@ class MyApp extends StatelessWidget {
           },
         ),
       ),
-
       initialRoute: initialRoute,
-
-      //  rutas
       routes: {
         '/register'    : (_) => RegisterScreen(),
         '/login'       : (_) => LoginScreen(),
@@ -70,8 +79,6 @@ class MyApp extends StatelessWidget {
         '/welcome'     : (_) => const WelcomeScreen(),
         '/age'         : (_) => const EdadScreen(),
       },
-
-      //  rutas dinámicas
       onGenerateRoute: (settings) {
         if (settings.name == '/flat-detail') {
           final id = settings.arguments as String?;

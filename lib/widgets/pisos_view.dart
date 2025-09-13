@@ -27,6 +27,7 @@ class _PisosViewState extends State<PisosView> {
   void _cargarTodo() {
     _futurePisos = _cargarPisos();
     _favService.obtenerPisosFavoritos().then((favIds) {
+      if (!mounted) return;
       setState(() => _misFavoritos = favIds);
     });
   }
@@ -52,7 +53,7 @@ class _PisosViewState extends State<PisosView> {
 
     // Añadir avatar anfitrión y ocupación
     for (final p in pubs) {
-      final perfil = p['anfitrion']['perfiles'] as Map<String,dynamic>? ?? {};
+      final perfil = p['anfitrion']['perfiles'] as Map<String, dynamic>? ?? {};
       final fotos = List<String>.from(perfil['fotos'] ?? []);
       p['anfitrion']['avatarUrl'] = fotos.isNotEmpty
           ? (fotos.first.startsWith('http')
@@ -70,141 +71,157 @@ class _PisosViewState extends State<PisosView> {
   void _toggleFav(String id) async {
     await _favService.alternarFavorito(id);
     final favs = await _favService.obtenerPisosFavoritos();
+    if (!mounted) return;
     setState(() => _misFavoritos = favs);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFF9F3E9), Colors.white],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _futurePisos,
-        builder: (ctx, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final pisos = snap.data!;
-          if (pisos.isEmpty) {
-            return const Center(child: Text('No hay pisos disponibles'));
-          }
-          return RefreshIndicator(
-            onRefresh: () async { _cargarTodo(); setState(() {}); },
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-              itemCount: pisos.length,
-              itemBuilder: (ctx, i) {
-                final p = pisos[i];
-                final fotos = List<String>.from(p['fotos'] ?? []);
-                final img = fotos.isNotEmpty ? fotos.first : null;
-                final host = p['anfitrion'] as Map<String, dynamic>?;
-                final isFav = _misFavoritos.contains(p['id']);
+    // OJO: sin Container con decoration aquí. Dejamos el fondo transparente
+    // para que se vea el gradiente animado que pone HomeScreen.
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _futurePisos,
+      builder: (ctx, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return Center(child: Text('Error cargando pisos:\n${snap.error}'));
+        }
+        final pisos = snap.data ?? [];
+        if (pisos.isEmpty) {
+          // Deja ver el gradiente del Home también aquí
+          return const Center(child: Text('No hay pisos disponibles'));
+        }
 
-                return GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PisoDetailScreen(pisoId: p['id']),
-                    ),
+        return RefreshIndicator(
+          onRefresh: () async {
+            _cargarTodo();
+            setState(() {});
+          },
+          child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+            itemCount: pisos.length,
+            itemBuilder: (ctx, i) {
+              final p = pisos[i];
+              final fotos = List<String>.from(p['fotos'] ?? []);
+              final img = fotos.isNotEmpty ? fotos.first : null;
+              final host = p['anfitrion'] as Map<String, dynamic>?;
+              final isFav = _misFavoritos.contains(p['id']);
+
+              return GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PisoDetailScreen(pisoId: p['id']),
                   ),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    height: 240,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0,4))],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          img != null
-                              ? Image.network(img, fit: BoxFit.cover)
-                              : Container(color: Colors.grey[300]),
-                          // Gradiente para legibilidad
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [Colors.black45, Colors.transparent],
-                              ),
+                ),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  height: 240,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        img != null
+                            ? Image.network(img, fit: BoxFit.cover)
+                            : Container(color: Colors.grey[300]),
+                        // Gradiente SOLO para legibilidad del texto sobre la foto
+                        Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [Colors.black45, Colors.transparent],
                             ),
                           ),
-                          Positioned(
-                            top: 16,
-                            right: 16,
-                            child: GestureDetector(
-                              onTap: () => _toggleFav(p['id']),
-                              child: CircleAvatar(
-                                backgroundColor: Colors.white70,
-                                child: Icon(
-                                  isFav ? Icons.favorite : Icons.favorite_border,
-                                  color: accent,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 16,
-                            left: 16,
-                            right: 16,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  p['direccion'],
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
+                        ),
+                        Positioned(
+                          top: 16,
+                          right: 16,
+                          child: GestureDetector(
+                            onTap: () => _toggleFav(p['id']),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white70,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.15),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 3),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${p['precio']}€/mes · Ocupación: ${p['ocupacion']}',
-                                  style: TextStyle(color: Colors.white70),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    if (host?['avatarUrl'] != null)
-                                      CircleAvatar(
-                                        radius: 16,
-                                        backgroundImage: NetworkImage(host!['avatarUrl']),
-                                      )
-                                    else
-                                      CircleAvatar(
-                                        radius: 16,
-                                        backgroundColor: Colors.white70,
-                                        child: Icon(Icons.person, color: accent),
-                                      ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      host?['nombre'] ?? 'Anfitrión',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                ],
+                              ),
+                              padding: const EdgeInsets.all(8),
+                              child: Icon(
+                                isFav ? Icons.favorite : Icons.favorite_border,
+                                color: accent,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                        Positioned(
+                          bottom: 16,
+                          left: 16,
+                          right: 16,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p['direccion'],
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${p['precio']}€/mes · Ocupación: ${p['ocupacion']}',
+                                style: const TextStyle(color: Colors.white70),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  if (host?['avatarUrl'] != null)
+                                    CircleAvatar(
+                                      radius: 16,
+                                      backgroundImage: NetworkImage(host!['avatarUrl']),
+                                    )
+                                  else
+                                    const CircleAvatar(
+                                      radius: 16,
+                                      backgroundColor: Colors.white70,
+                                      child: Icon(Icons.person, color: accent),
+                                    ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    host?['nombre'] ?? 'Anfitrión',
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                );
-              },
-            ),
-          );
-        },
-      ),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

@@ -11,7 +11,7 @@ import 'favorites_screen.dart';
 import 'profile_screen.dart';
 
 class MessagesScreen extends StatefulWidget {
-  const MessagesScreen({super.key});
+  const MessagesScreen({Key? key}) : super(key: key);
 
   @override
   State<MessagesScreen> createState() => _MessagesScreenState();
@@ -22,27 +22,47 @@ class _MessagesScreenState extends State<MessagesScreen> {
   final SupabaseClient _sb = Supabase.instance.client;
   int _bottomIdx = 2;
 
-  void _onBottomNavTap(int i) {
-    if (i == _bottomIdx) return;
-    late Widget dest;
-    switch (i) {
-      case 0:
-        dest = const HomeScreen();
-        break;
-      case 1:
-        dest = const FavoritesScreen();
-        break;
-      case 3:
-        dest = const ProfileScreen();
-        break;
-      default:
-        return;
-    }
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
-    setState(() => _bottomIdx = i);
+  // Para búsqueda
+  bool _isSearching = false;
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  // Listas de chats
+  List<Map<String, dynamic>> _allChats = [];
+  List<Map<String, dynamic>> _filteredChats = [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChats();
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
-  Future<List<Map<String, dynamic>>> _loadChats() async {
+  @override
+  void dispose() {
+    _searchCtrl.removeListener(_onSearchChanged);
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final term = _searchCtrl.text.trim().toLowerCase();
+    if (term.isEmpty) {
+      setState(() => _filteredChats = List.from(_allChats));
+    } else {
+      setState(() {
+        _filteredChats = _allChats.where((c) {
+          final name = (c['partner']['nombre'] as String).toLowerCase();
+          return name.startsWith(term);
+        }).toList();
+      });
+    }
+  }
+
+  Future<void> _loadChats() async {
+    setState(() {
+      _loading = true;
+    });
     final me = _sb.auth.currentUser!;
     final rows = await _sb
         .from('chats')
@@ -55,13 +75,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
           )
         ''')
         .or('usuario1_id.eq.${me.id},usuario2_id.eq.${me.id}');
-
     // Montar avatarMap
     final ids = <String>{
       for (final r in rows as List)
         ...[(r['usuario1'] as Map)['id'], (r['usuario2'] as Map)['id']]
     }..remove(me.id);
-
     final avatarMap = <String, String?>{};
     if (ids.isNotEmpty) {
       final filter = ids.map((id) => 'usuario_id.eq.$id').join(',');
@@ -76,7 +94,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
             : _sb.storage.from('profile.photos').getPublicUrl(fotos.first));
       }
     }
-
     // Construir lista
     final chats = <Map<String, dynamic>>[];
     for (final r in rows) {
@@ -101,8 +118,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
         'unread': unread,
       });
     }
-
-    return chats;
+    setState(() {
+      _allChats = chats;
+      _filteredChats = List.from(chats);
+      _loading = false;
+    });
   }
 
   String _fmtTime(String iso) {
@@ -110,12 +130,31 @@ class _MessagesScreenState extends State<MessagesScreen> {
     return "${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}";
   }
 
+  void _onBottomNavTap(int i) {
+    if (i == _bottomIdx) return;
+    late Widget dest;
+    switch (i) {
+      case 0:
+        dest = const HomeScreen();
+        break;
+      case 1:
+        dest = const FavoritesScreen();
+        break;
+      case 3:
+        dest = const ProfileScreen();
+        break;
+      default:
+        return;
+    }
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
+    setState(() => _bottomIdx = i);
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        // Degradado ligero
         body: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -127,28 +166,56 @@ class _MessagesScreenState extends State<MessagesScreen> {
           child: SafeArea(
             child: Column(
               children: [
-                // AppBar custom
+                // AppBar custom con buscador
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
-                      const Text(
-                        'Conversaciones',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                      if (!_isSearching) ...[
+                        const Text(
+                          'Conversaciones',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
                         ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: Icon(Icons.search, color: accent),
-                        onPressed: () {/* abrir búsqueda */},
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.person_add, color: accent),
-                        onPressed: () {/* invitar */},
-                      ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(Icons.search, color: accent),
+                          onPressed: () {
+                            setState(() {
+                              _isSearching = true;
+                              _searchCtrl.clear();
+                            });
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.person_add, color: accent),
+                          onPressed: () {/* invitar */},
+                        ),
+                      ] else ...[
+                        Expanded(
+                          child: TextField(
+                            controller: _searchCtrl,
+                            autofocus: true,
+                            decoration: const InputDecoration(
+                              hintText: 'Buscar chats...',
+                              border: InputBorder.none,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            setState(() {
+                              _isSearching = false;
+                              _searchCtrl.clear();
+                              _filteredChats = List.from(_allChats);
+                            });
+                          },
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -169,107 +236,107 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   child: TabBarView(
                     children: [
                       // Chats
-                      FutureBuilder<List<Map<String, dynamic>>>(
-                        future: _loadChats(),
-                        builder: (ctx, snap) {
-                          if (snap.connectionState != ConnectionState.done) {
-                            return const Center(child: CircularProgressIndicator());
-                          }
-                          final chats = snap.data!;
-                          if (chats.isEmpty) {
-                            return const Center(child: Text('No tienes chats aún'));
-                          }
-                          return RefreshIndicator(
-                            onRefresh: () async => setState(() {}),
-                            child: ListView.builder(
-                              padding: const EdgeInsets.all(12),
-                              itemCount: chats.length,
-                              itemBuilder: (ctx, i) {
-                                final c = chats[i];
-                                final p = c['partner'] as Map<String, dynamic>;
-                                final last = c['lastMsg'] as Map<String, dynamic>?;
-                                final time = last != null
-                                    ? _fmtTime(last['created_at'])
-                                    : '';
-                                final unread = c['unread'] as bool;
+                      _loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _filteredChats.isEmpty
+                          ? const Center(child: Text('No tienes chats aún'))
+                          : RefreshIndicator(
+                        onRefresh: _loadChats,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: _filteredChats.length,
+                          itemBuilder: (ctx, i) {
+                            final c = _filteredChats[i];
+                            final p = c['partner'] as Map<String, dynamic>;
+                            final last = c['lastMsg'] as Map<String, dynamic>?;
+                            final time = last != null
+                                ? _fmtTime(last['created_at'])
+                                : '';
+                            final unread = c['unread'] as bool;
 
-                                return Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(16),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black12,
-                                        blurRadius: 4,
-                                        offset: const Offset(0, 2),
-                                      )
-                                    ],
+                            return Container(
+                              margin:
+                              const EdgeInsets.symmetric(vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black12,
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  )
+                                ],
+                              ),
+                              child: ListTile(
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ChatDetailScreen(
+                                      chatId: c['chatId'] as String,
+                                      companero: {
+                                        'id': p['id'],
+                                        'nombre': p['nombre'],
+                                        'foto_perfil': p['foto'],
+                                      },
+                                    ),
                                   ),
-                                  child: ListTile(
-                                    onTap: () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => ChatDetailScreen(
-                                          chatId: c['chatId'] as String,
-                                          companero: {
-                                            'id': p['id'],
-                                            'nombre': p['nombre'],
-                                            'foto_perfil': p['foto'],
-                                          },
+                                ),
+                                contentPadding:
+                                const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8),
+                                leading: CircleAvatar(
+                                  radius: 26,
+                                  backgroundColor:
+                                  accent.withOpacity(0.2),
+                                  backgroundImage: p['foto'] != null
+                                      ? NetworkImage(p['foto'])
+                                      : null,
+                                  child: p['foto'] == null
+                                      ? Icon(Icons.person,
+                                      color: accent, size: 28)
+                                      : null,
+                                ),
+                                title: Text(
+                                  p['nombre'],
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                subtitle: Text(
+                                  last != null
+                                      ? last['mensaje'] as String
+                                      : 'Sin mensajes',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: Column(
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      time,
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey),
+                                    ),
+                                    if (unread)
+                                      Container(
+                                        margin: const EdgeInsets.only(
+                                            top: 6),
+                                        width: 12,
+                                        height: 12,
+                                        decoration:
+                                        const BoxDecoration(
+                                          color: Colors.redAccent,
+                                          shape: BoxShape.circle,
                                         ),
                                       ),
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 8),
-                                    leading: CircleAvatar(
-                                      radius: 26,
-                                      backgroundColor: accent.withOpacity(0.2),
-                                      backgroundImage: p['foto'] != null
-                                          ? NetworkImage(p['foto'])
-                                          : null,
-                                      child: p['foto'] == null
-                                          ? Icon(Icons.person, color: accent, size: 28)
-                                          : null,
-                                    ),
-                                    title: Text(
-                                      p['nombre'],
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                    subtitle: Text(
-                                      last != null
-                                          ? last['mensaje'] as String
-                                          : 'Sin mensajes',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          time,
-                                          style: const TextStyle(
-                                              fontSize: 12, color: Colors.grey),
-                                        ),
-                                        if (unread)
-                                          Container(
-                                            margin: const EdgeInsets.only(top: 6),
-                                            width: 12,
-                                            height: 12,
-                                            decoration: const BoxDecoration(
-                                              color: Colors.redAccent,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          );
-                        },
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
 
                       // Solicitudes
