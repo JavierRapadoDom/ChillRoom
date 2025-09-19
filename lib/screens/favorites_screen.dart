@@ -1,4 +1,5 @@
 // lib/screens/favorites_screen.dart
+import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,7 +21,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   final _supabase = Supabase.instance.client;
   final _favService = FavoriteService();
   late Future<List<Map<String, dynamic>>> _futureFavoritos;
-  int _selectedBottomIndex = 1;
+  int _selectedBottomIndex = -1;
 
   @override
   void initState() {
@@ -79,7 +80,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         dest = const HomeScreen();
         break;
       case 1:
-        dest = const FavoritesScreen();
+        dest = const CommunityScreen();
         break;
       case 2:
         dest = const MessagesScreen();

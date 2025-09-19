@@ -1,3 +1,4 @@
+import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';  // 👈 importa Google Fonts
@@ -76,8 +77,9 @@ class MyApp extends StatelessWidget {
         '/choose-role' : (_) => const ChooseRoleScreen(),
         '/home'        : (_) => const HomeScreen(),
         '/profile'     : (_) => const ProfileScreen(),
-        '/welcome'     : (_) => const WelcomeScreen(),
+        '/welcome'     : (_) => const  WelcomeScreen(),
         '/age'         : (_) => const EdadScreen(),
+        '/community'   : (_) => const CommunityScreen(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/flat-detail') {

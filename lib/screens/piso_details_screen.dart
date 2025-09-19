@@ -1,4 +1,4 @@
-// lib/screens/piso_details_screen.dart
+import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -79,6 +79,12 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     return false;
   }
 
+  String _quoteIn(List<String> values) {
+    if (values.isEmpty) return '(NULL)';
+    final items = values.map((v) => '"$v"').join(',');
+    return '($items)';
+  }
+
   Future<Map<String, dynamic>> _loadData() async {
     final piso = await _loadPiso();
 
@@ -99,6 +105,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
 
   Future<Map<String, dynamic>> _loadPiso() async {
     final me = supabase.auth.currentUser!.id;
+
     final raw = await supabase
         .from('publicaciones_piso')
         .select(r"""
@@ -109,6 +116,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
           numero_habitaciones,
           metros_cuadrados,
           fotos,
+          companeros_id,
           anfitrion:usuarios!publicaciones_piso_anfitrion_id_fkey(
             id, nombre,
             perfiles!perfiles_usuario_id_fkey(fotos)
@@ -119,23 +127,9 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
 
     final piso = Map<String, dynamic>.from(raw as Map);
 
-    final compsRaw = await supabase
-        .from('compañeros_piso')
-        .select(r"""
-          usuario:usuarios!compañeros_piso_usuario_id_fkey(
-            id, nombre,
-            perfiles!perfiles_usuario_id_fkey(fotos)
-          )
-        """)
-        .eq('publicacion_piso_id', widget.pisoId);
-
-    final companeros = (compsRaw as List)
-        .map((e) => Map<String, dynamic>.from((e as Map)['usuario'] as Map))
-        .toList();
-
     Map<String, dynamic> withAvatar(Map<String, dynamic> u) {
       final perfil = u['perfiles'] as Map<String, dynamic>? ?? {};
-      final fotos = List<String>.from(perfil['fotos'] ?? []);
+      final fotos = List<String>.from(perfil['fotos'] ?? const []);
       u['avatarUrl'] = fotos.isNotEmpty
           ? (fotos.first.startsWith('http')
           ? fotos.first
@@ -145,8 +139,32 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     }
 
     piso['anfitrion'] = withAvatar(Map<String, dynamic>.from(piso['anfitrion']));
-    piso['companeros'] = companeros.map(withAvatar).toList();
-    piso['ocupacion'] = '${(piso['companeros'] as List).length}/${piso['numero_habitaciones']}';
+
+    final compIds = (piso['companeros_id'] as List?)
+        ?.map((e) => '$e')
+        .where((e) => e.isNotEmpty)
+        .toList() ??
+        <String>[];
+
+    List<Map<String, dynamic>> companeros = [];
+    if (compIds.isNotEmpty) {
+      final inList = _quoteIn(compIds);
+      final compsRaw = await supabase
+          .from('usuarios')
+          .select(r'''
+            id, nombre,
+            perfiles:perfiles!perfiles_usuario_id_fkey(fotos)
+          ''')
+          .filter('id', 'in', inList);
+
+      companeros = (compsRaw as List)
+          .map((e) => withAvatar(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+
+    piso['companeros'] = companeros;
+    piso['ocupacion'] =
+    '${(piso['companeros'] as List).length}/${piso['numero_habitaciones']}';
 
     final hostId = piso['anfitrion']['id'] as String;
     final chatRow = await supabase
@@ -157,6 +175,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
           'and(usuario1_id.eq.$hostId,usuario2_id.eq.$me)',
     )
         .maybeSingle();
+
     piso['chatId'] = chatRow != null ? (chatRow as Map)['id'] as String : null;
 
     return piso;
@@ -171,14 +190,41 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
     if (idx == _selectedBottomIndex) return;
     late Widget dest;
     switch (idx) {
-      case 0: dest = const HomeScreen(); break;
-      case 1: dest = const FavoritesScreen(); break;
-      case 2: dest = const MessagesScreen(); break;
-      case 3: dest = const ProfileScreen(); break;
-      default: return;
+      case 0:
+        dest = const HomeScreen();
+        break;
+      case 1:
+        dest = const CommunityScreen();
+        break;
+      case 2:
+        dest = const MessagesScreen();
+        break;
+      case 3:
+        dest = const ProfileScreen();
+        break;
+      default:
+        return;
     }
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
     setState(() => _selectedBottomIndex = idx);
+  }
+
+  // ---------- Fullscreen ----------
+  void _openFullscreenPhotos(List<String> urls, int initialIndex, String heroPrefix) {
+    if (urls.isEmpty) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: true,
+        barrierColor: Colors.black,
+        transitionDuration: const Duration(milliseconds: 220),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
+        pageBuilder: (_, __, ___) => _FullscreenGallery(
+          urls: urls,
+          initialIndex: initialIndex,
+          heroPrefix: heroPrefix,
+        ),
+      ),
+    );
   }
 
   // ---------- UI HELPERS ----------
@@ -233,6 +279,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final isFav = _misFavs.contains(widget.pisoId);
+    final heroPrefix = 'piso_${widget.pisoId}';
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -306,18 +353,55 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                               if (fotos.isEmpty) {
                                 return Container(color: Colors.grey[300]);
                               }
-                              return Image.network(fotos[i], fit: BoxFit.cover);
+                              final url = fotos[i];
+                              return GestureDetector(
+                                onTap: () => _openFullscreenPhotos(
+                                  fotos,
+                                  i,
+                                  heroPrefix,
+                                ),
+                                child: Hero(
+                                  tag: '$heroPrefix-$i',
+                                  child: Image.network(
+                                    url,
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                    loadingBuilder: (context, child, prog) {
+                                      if (prog == null) return child;
+                                      return Container(
+                                        color: Colors.grey[200],
+                                        child: const Center(child: CircularProgressIndicator()),
+                                      );
+                                    },
+                                    errorBuilder: (context, error, stack) {
+                                      return Container(
+                                        color: Colors.grey[300],
+                                        child: const Center(
+                                          child: Icon(Icons.broken_image, size: 64, color: Colors.white70),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              );
                             },
                           ),
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [Colors.black54, Colors.transparent],
+
+                          // ⬇️ Degradado que NO intercepta gestos
+                          IgnorePointer(
+                            ignoring: true,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [Colors.black54, Colors.transparent],
+                                ),
                               ),
                             ),
                           ),
+
+                          // ⬇️ Dots clicables
                           if (fotos.length > 1)
                             Positioned(
                               bottom: 12,
@@ -327,19 +411,29 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: List.generate(
                                   fotos.length,
-                                      (i) => AnimatedContainer(
-                                    duration: const Duration(milliseconds: 250),
-                                    width: i == _page ? 22 : 8,
-                                    height: 8,
-                                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                                    decoration: BoxDecoration(
-                                      color: i == _page ? accent : Colors.white70,
-                                      borderRadius: BorderRadius.circular(12),
+                                      (i) => GestureDetector(
+                                    onTap: () => _pageCtrl.animateToPage(
+                                      i,
+                                      duration: const Duration(milliseconds: 250),
+                                      curve: Curves.easeInOut,
+                                    ),
+                                    behavior: HitTestBehavior.translucent,
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 250),
+                                      width: i == _page ? 22 : 8,
+                                      height: 8,
+                                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                                      decoration: BoxDecoration(
+                                        color: i == _page ? accent : Colors.white70,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
+
+                          // Corazón favorito (esto sí debe captar el toque)
                           Positioned(
                             top: 16,
                             right: 16,
@@ -373,14 +467,14 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                     ),
                   ),
 
-                  // ---------- CARD SUPERPUESTA (más separación del header) ----------
+                  // ---------- CARD SUPERPUESTA ----------
                   SliverToBoxAdapter(
                     child: Transform.translate(
-                      offset: const Offset(0, -8), // antes -22 → más espacio con la imagen
+                      offset: const Offset(0, -8),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Container(
-                          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16), // + padding top
+                          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
@@ -395,7 +489,6 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Dirección (precio se elimina aquí para no duplicar)
                               Text(
                                 (piso['direccion'] ?? '').toString(),
                                 style: const TextStyle(
@@ -403,10 +496,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
-
                               const SizedBox(height: 14),
-
-                              // Quick facts (SIN ocupación para evitar duplicidad)
                               Row(
                                 children: [
                                   _pill(icon: Icons.meeting_room, text: '${piso['numero_habitaciones']} hab'),
@@ -414,10 +504,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                                   _pill(icon: Icons.square_foot, text: '${piso['metros_cuadrados']} m²'),
                                 ],
                               ),
-
                               const SizedBox(height: 16),
-
-                              // Solo barra de ocupación (visual, sin repetir en quick facts)
                               _progressLabel(occValue, 'Ocupación del piso'),
                             ],
                           ),
@@ -471,34 +558,45 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                               separatorBuilder: (_, __) => const SizedBox(width: 12),
                               itemBuilder: (_, i) {
                                 final u = comps[i] as Map<String, dynamic>;
-                                return Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 22,
-                                      backgroundImage: (u['avatarUrl'] != null)
-                                          ? NetworkImage(u['avatarUrl'])
-                                          : null,
-                                      backgroundColor: const Color(0x33E3A62F),
-                                      child: (u['avatarUrl'] == null)
-                                          ? const Icon(Icons.person, color: accent)
-                                          : null,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    SizedBox(
-                                      width: 84,
-                                      child: Text(
-                                        (u['nombre'] ?? '') as String,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          color: Colors.black.withOpacity(0.85),
+                                final uid = '${u['id']}';
+                                return GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => UserDetailsScreen(userId: uid),
+                                      ),
+                                    );
+                                  },
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 22,
+                                        backgroundImage: (u['avatarUrl'] != null)
+                                            ? NetworkImage(u['avatarUrl'])
+                                            : null,
+                                        backgroundColor: const Color(0x33E3A62F),
+                                        child: (u['avatarUrl'] == null)
+                                            ? const Icon(Icons.person, color: accent)
+                                            : null,
+                                      ),
+                                      const SizedBox(height: 6),
+                                      SizedBox(
+                                        width: 84,
+                                        child: Text(
+                                          (u['nombre'] ?? '') as String,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            color: Colors.black.withOpacity(0.85),
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 );
                               },
                             );
@@ -578,7 +676,7 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                 ],
               ),
 
-              // ---------- FOOTER (precio solo aquí) ----------
+              // ---------- FOOTER ----------
               Positioned(
                 left: 0,
                 right: 0,
@@ -599,7 +697,6 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                     top: false,
                     child: Row(
                       children: [
-                        // Precio (única aparición)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           decoration: BoxDecoration(
@@ -612,8 +709,6 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-
-                        // CTA principal
                         Expanded(
                           child: isMine
                               ? _DisabledCTA(text: 'Es tu piso')
@@ -652,8 +747,6 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-
-                        // Favorito
                         GestureDetector(
                           onTap: _toggleFavorito,
                           child: Container(
@@ -688,6 +781,124 @@ class _PisoDetailScreenState extends State<PisoDetailScreen> {
       bottomNavigationBar: AppMenu(
         seleccionMenuInferior: _selectedBottomIndex,
         cambiarMenuInferior: _onBottomNavChanged,
+      ),
+    );
+  }
+}
+
+// ---------- Visor fullscreen reutilizable ----------
+class _FullscreenGallery extends StatefulWidget {
+  final List<String> urls;
+  final int initialIndex;
+  final String heroPrefix;
+
+  const _FullscreenGallery({
+    required this.urls,
+    required this.initialIndex,
+    required this.heroPrefix,
+  });
+
+  @override
+  State<_FullscreenGallery> createState() => _FullscreenGalleryState();
+}
+
+class _FullscreenGalleryState extends State<_FullscreenGallery> {
+  late final PageController _ctrl;
+  late int _index;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex.clamp(0, widget.urls.length - 1);
+    _ctrl = PageController(initialPage: _index);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final padTop = MediaQuery.of(context).padding.top;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          PageView.builder(
+            controller: _ctrl,
+            onPageChanged: (i) => setState(() => _index = i),
+            itemCount: widget.urls.length,
+            itemBuilder: (_, i) {
+              final url = widget.urls[i];
+              return Center(
+                child: Hero(
+                  tag: '${widget.heroPrefix}-$i',
+                  child: InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Image.network(
+                      url,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (c, child, progress) {
+                        if (progress == null) return child;
+                        return const Center(
+                          child: CircularProgressIndicator(color: Colors.white),
+                        );
+                      },
+                      errorBuilder: (c, e, s) => const Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white54,
+                        size: 72,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          // Cerrar
+          Positioned(
+            right: 12,
+            top: padTop + 10,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: Material(
+                color: Colors.black.withOpacity(0.4),
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.of(context).pop(),
+                  tooltip: 'Cerrar',
+                ),
+              ),
+            ),
+          ),
+          // Indicador
+          if (widget.urls.length > 1)
+            Positioned(
+              bottom: 18 + MediaQuery.of(context).padding.bottom,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  widget.urls.length,
+                      (i) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: i == _index ? 22 : 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      color: i == _index ? Colors.white : Colors.white54,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -8,9 +8,10 @@ import '../services/swipe_service.dart';
 import '../widgets/app_menu.dart';
 import '../widgets/usuarios_view.dart';
 import '../widgets/pisos_view.dart';
-import 'favorites_screen.dart';
+// import 'favorites_screen.dart'; // <- Ya no se usa en la bottom bar
 import 'messages_screen.dart';
 import 'profile_screen.dart';
+import 'community_screen.dart'; // <-- NUEVO import
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -91,9 +92,9 @@ class _HomeScreenState extends State<HomeScreen>
     late Widget dest;
     switch (index) {
       case 0:
-        return;
+        return; // Ya estamos en Inicio
       case 1:
-        dest = const FavoritesScreen();
+        dest = const CommunityScreen(); // <-- ahora abre Comunidad real
         break;
       case 2:
         dest = const MessagesScreen();
@@ -102,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen>
         dest = const ProfileScreen();
         break;
       default:
-        dest = const FavoritesScreen();
+        return;
     }
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
   }
@@ -326,8 +327,7 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 // AppBar custom (igual estética)
                 SafeArea(
-                  child: Container
-                    (
+                  child: Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
@@ -427,10 +427,10 @@ class _HomeScreenState extends State<HomeScreen>
                                     child: Container(
                                       width: 8,
                                       height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.red,
-                                        shape: BoxShape.circle,
-                                      ),
+                                      // decoration: const BoxDecoration(
+                                      //   color: Colors.red,
+                                      //   shape: BoxShape.circle,
+                                      // ),
                                     ),
                                   ),
                                 ],
@@ -520,5 +520,3 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 }
-
-

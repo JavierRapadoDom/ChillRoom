@@ -1,5 +1,9 @@
 // lib/screens/profile_screen.dart
+import 'dart:io';
+
+import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../widgets/app_menu.dart';
@@ -8,6 +12,7 @@ import 'create_flat_info_screen.dart';
 import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'messages_screen.dart';
+import 'package:chillroom/widgets/feedback_sheet.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -26,11 +31,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   late Future<Map<String, dynamic>> _futureData;
 
+  // --- Listas canónicas para el editor de intereses (mismo copy que en onboarding) ---
+  static const List<String> _estiloVidaOpc = <String>[
+    'Trabajo en casa', 'Madrugador', 'Nocturno', 'Estudiante', 'Minimalista', 'Jardinería',
+  ];
+  static const List<String> _deportesOpc = <String>[
+    'Correr', 'Gimnasio', 'Yoga', 'Ciclismo', 'Natación', 'Fútbol', 'Baloncesto', 'Vóley', 'Tenis',
+  ];
+  static const List<String> _entretenimientoOpc = <String>[
+    'Videojuegos', 'Series', 'Películas', 'Teatro', 'Lectura', 'Podcasts', 'Música',
+  ];
+
+  // --- Image picker para editar fotos ---
+  final ImagePicker _picker = ImagePicker();
+
   @override
   void initState() {
     super.initState();
     _supabase = Supabase.instance.client;
     _futureData = _loadData();
+  }
+
+  String _publicUrlForKey(String key) {
+    return _supabase.storage.from('profile.photos').getPublicUrl(key);
   }
 
   Future<Map<String, dynamic>> _loadData() async {
@@ -55,12 +78,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final flat = (flats as List).isNotEmpty ? flats.first as Map<String, dynamic> : null;
 
+    // Fotos: guardamos tanto las keys crudas como sus URLs públicas (para el UI)
+    final List<String> fotoKeys = List<String>.from(prof['fotos'] ?? []);
+    final List<String> fotoUrls = fotoKeys.map((f) => f.startsWith('http') ? f : _publicUrlForKey(f)).toList();
+
     String? avatar;
-    final fotos = List<String>.from(prof['fotos'] ?? []);
-    if (fotos.isNotEmpty) {
-      avatar = fotos.first.startsWith('http')
-          ? fotos.first
-          : _supabase.storage.from('profile.photos').getPublicUrl(fotos.first);
+    if (fotoUrls.isNotEmpty) {
+      avatar = fotoUrls.first;
     }
 
     return {
@@ -68,6 +92,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'edad': user['edad'],
       'rol': _formatRole(user['rol']),
       'bio': prof['biografia'] ?? '',
+      'estilo_vida': List<String>.from(prof['estilo_vida'] ?? []),
+      'deportes': List<String>.from(prof['deportes'] ?? []),
+      'entretenimiento': List<String>.from(prof['entretenimiento'] ?? []),
+      // Merged interests solo para mostrar chips
       'intereses': [
         ...List<String>.from(prof['estilo_vida'] ?? []),
         ...List<String>.from(prof['deportes'] ?? []),
@@ -75,7 +103,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ],
       'avatar': avatar,
       'flat': flat,
-      'photosCount': fotos.length,
+      'photosCount': fotoUrls.length,
+      'fotoKeys': fotoKeys,
+      'fotoUrls': fotoUrls,
     };
   }
 
@@ -116,7 +146,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               );
               if (!mounted) return;
               Navigator.pop(context);
-              setState(() => _futureData = _loadData());
+              setState(() {
+                _futureData = _loadData();
+              });
               ScaffoldMessenger.of(context)
                   .showSnackBar(const SnackBar(content: Text('Biografía actualizada')));
             },
@@ -128,6 +160,380 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // === Editor de intereses (sin setState async) ===
+  Future<void> _openInterestsEditor() async {
+    final uid = _supabase.auth.currentUser!.id;
+
+    final prof = await _supabase
+        .from('perfiles')
+        .select('estilo_vida, deportes, entretenimiento')
+        .eq('usuario_id', uid)
+        .maybeSingle();
+
+    final currentEstiloVida = <String>{...List<String>.from(prof?['estilo_vida'] ?? const [])};
+    final currentDeportes = <String>{...List<String>.from(prof?['deportes'] ?? const [])};
+    final currentEntretenimiento = <String>{...List<String>.from(prof?['entretenimiento'] ?? const [])};
+
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        bool saving = false;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            Future<void> onSave() async {
+              if (saving) return;
+              setModalState(() => saving = true);
+
+              await _supabase.from('perfiles').upsert(
+                {
+                  'usuario_id': uid,
+                  'estilo_vida': currentEstiloVida.toList(),
+                  'deportes': currentDeportes.toList(),
+                  'entretenimiento': currentEntretenimiento.toList(),
+                },
+                onConflict: 'usuario_id',
+              );
+
+              if (Navigator.of(sheetCtx).canPop()) {
+                Navigator.of(sheetCtx).pop();
+              }
+              if (!mounted) return;
+              setState(() {
+                _futureData = _loadData();
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Intereses actualizados')),
+              );
+            }
+
+            Widget buildGroup(String title, List<String> options, Set<String> selected) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 10),
+                  Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: options.map((opt) {
+                      final sel = selected.contains(opt);
+                      return FilterChip(
+                        label: Text(opt),
+                        selected: sel,
+                        onSelected: (v) {
+                          setModalState(() {
+                            if (v) {
+                              selected.add(opt);
+                            } else {
+                              selected.remove(opt);
+                            }
+                          });
+                        },
+                        selectedColor: accent.withOpacity(0.15),
+                        checkmarkColor: accent,
+                        side: BorderSide(color: sel ? accent : Colors.grey.shade300),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    const Text('Editar intereses',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 6),
+                    Text('Actualiza lo que te define en ChillRoom.',
+                        style: TextStyle(color: Colors.black.withOpacity(0.6))),
+                    const SizedBox(height: 14),
+
+                    buildGroup('Estilo de vida', _estiloVidaOpc, currentEstiloVida),
+                    buildGroup('Deportes', _deportesOpc, currentDeportes),
+                    buildGroup('Entretenimiento', _entretenimientoOpc, currentEntretenimiento),
+
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: saving ? null : onSave,
+                        icon: saving
+                            ? const SizedBox(
+                            width: 18, height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                            : const Icon(Icons.save_outlined),
+                        label: Text(saving ? 'Guardando...' : 'Guardar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // === NUEVO: Editor de fotos ===
+  Future<void> _openPhotosEditor() async {
+    final uid = _supabase.auth.currentUser!.id;
+
+    // Leer listado actual de keys
+    final prof = await _supabase
+        .from('perfiles')
+        .select('fotos')
+        .eq('usuario_id', uid)
+        .maybeSingle();
+
+    final List<String> currentKeys = List<String>.from(prof?['fotos'] ?? const []);
+
+    // Modelo simple en memoria: keys existentes + ficheros nuevos
+    final List<String> keptKeys = [...currentKeys]; // se van eliminando desde UI
+    final List<File> newFiles = [];                 // añadidos desde galería
+
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        bool saving = false;
+
+        Future<void> addPhoto() async {
+          final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
+          if (picked == null) return;
+          // añadir a la lista de nuevos y refrescar
+          newFiles.add(File(picked.path));
+          (sheetCtx as Element).markNeedsBuild();
+        }
+
+        Future<void> onSave() async {
+          if (saving) return;
+          saving = true;
+          (sheetCtx as Element).markNeedsBuild();
+
+          final List<String> finalKeys = [...keptKeys];
+
+          // Subir nuevos
+          for (final f in newFiles) {
+            final fileName = '$uid/${DateTime.now().millisecondsSinceEpoch}_${finalKeys.length}.jpg';
+            await _supabase.storage.from('profile.photos').upload(fileName, f);
+            finalKeys.add(fileName);
+          }
+
+          // Persistir en DB
+          await _supabase.from('perfiles').upsert(
+            {'usuario_id': uid, 'fotos': finalKeys},
+            onConflict: 'usuario_id',
+          );
+
+          if (Navigator.of(sheetCtx).canPop()) {
+            Navigator.of(sheetCtx).pop();
+          }
+          if (!mounted) return;
+          setState(() {
+            _futureData = _loadData();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Fotos actualizadas')),
+          );
+        }
+
+        Widget tileForExisting(String key) {
+          final url = key.startsWith('http') ? key : _publicUrlForKey(key);
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(url, fit: BoxFit.cover),
+                ),
+              ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: InkWell(
+                  onTap: () {
+                    keptKeys.remove(key);
+                    (sheetCtx as Element).markNeedsBuild();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, size: 16, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        Widget tileForNew(File file) {
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(file, fit: BoxFit.cover),
+                ),
+              ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: InkWell(
+                  onTap: () {
+                    newFiles.remove(file);
+                    (sheetCtx as Element).markNeedsBuild();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, size: 16, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        Widget addTile() {
+          return InkWell(
+            onTap: addPhoto,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: const Center(child: Icon(Icons.add, size: 34)),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const Text('Editar fotos',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  Text('Añade o elimina fotos de tu perfil.',
+                      style: TextStyle(color: Colors.black.withOpacity(0.6))),
+                  const SizedBox(height: 12),
+
+                  // Grid
+                  Flexible(
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      itemCount: keptKeys.length + newFiles.length + 1,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                      ),
+                      itemBuilder: (_, i) {
+                        if (i == keptKeys.length + newFiles.length) return addTile();
+                        if (i < keptKeys.length) return tileForExisting(keptKeys[i]);
+                        return tileForNew(newFiles[i - keptKeys.length]);
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: saving ? null : onSave,
+                      icon: saving
+                          ? const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                          : const Icon(Icons.save_outlined),
+                      label: Text(saving ? 'Guardando...' : 'Guardar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openFavorites() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen()));
+  }
+
   void _onTapBottom(int idx) {
     if (idx == _selectedBottom) return;
     Widget dest;
@@ -136,7 +542,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         dest = const HomeScreen();
         break;
       case 1:
-        dest = const FavoritesScreen();
+        dest = const CommunityScreen();
         break;
       case 2:
         dest = const MessagesScreen();
@@ -173,6 +579,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Icons.local_fire_department;
   }
 
+  // =========================
+  // NUEVO: Borrado de piso
+  // =========================
+  Future<void> _confirmAndDeleteFlat(Map<String, dynamic> flat) async {
+    final address = (flat['direccion'] ?? '').toString();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar piso'),
+        content: Text(
+          address.isNotEmpty
+              ? 'Vas a eliminar el piso en:\n\n$address\n\nEsta acción no se puede deshacer.'
+              : 'Vas a eliminar tu piso.\n\nEsta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.delete_forever),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(context, true),
+            label: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _deleteFlat(flat['id'].toString());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Piso eliminado')),
+      );
+      setState(() {
+        _futureData = _loadData(); // refrescar perfil
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al eliminar: $e')),
+      );
+    }
+  }
+
+  Future<void> _deleteFlat(String id) async {
+    // RLS: el usuario debe ser anfitrión del piso (anfitrion_id = auth.uid())
+    await _supabase.from('publicaciones_piso').delete().eq('id', id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -191,6 +647,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final interests = (d['intereses'] as List).cast<String>();
           final flat = d['flat'] as Map<String, dynamic>?;
           final photosCount = d['photosCount'] as int? ?? 0;
+          final fotoUrls = (d['fotoUrls'] as List).cast<String>();
 
           return Stack(
             children: [
@@ -255,13 +712,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   style: TextStyle(color: Colors.black.withOpacity(0.6), fontSize: 14.5),
                                 ),
                                 const SizedBox(height: 14),
-                                // Stats
+                                // Stats + NUEVO botón Favoritos
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     _StatPill(icon: Icons.photo_camera_outlined, label: '$photosCount', caption: 'Fotos'),
                                     const SizedBox(width: 10),
                                     _StatPill(icon: Icons.star_border, label: '${interests.length}', caption: 'Intereses'),
+                                    const SizedBox(width: 10),
+                                    _ActionPill(
+                                      icon: Icons.favorite_border,
+                                      text: 'Favoritos',
+                                      onTap: _openFavorites,
+                                    ),
                                   ],
                                 ),
                               ],
@@ -284,8 +747,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
+                    // Botón Feedback arriba a la derecha
+                    actions: [
+                      Container(
+                        margin: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.10),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          tooltip: 'Enviar feedback',
+                          icon: const Icon(Icons.feedback_outlined, color: Colors.black87),
+                          onPressed: () => FeedbackSheet.show(context),
+                        ),
+                      ),
+                    ],
                     centerTitle: true,
-
                   ),
 
                   // ---------- TARJETA PRINCIPAL ----------
@@ -313,13 +790,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                               ),
                             ),
-                            // Botones rápidos (añadir piso / editar bio)
+
+                            // Editar bio
                             TextButton.icon(
                               onPressed: () => _openBioDialog(d['bio'] as String),
                               icon: const Icon(Icons.edit, size: 18, color: accent),
                               label: const Text('Bio', style: TextStyle(color: accent, fontWeight: FontWeight.w700)),
                             ),
                             const SizedBox(width: 6),
+
+                            // Publicar piso (si no tiene)
                             if (flat == null)
                               ElevatedButton.icon(
                                 onPressed: () {
@@ -336,6 +816,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                           ],
                         ),
+                      ),
+                    ),
+                  ),
+
+                  // ---------- MIS FOTOS ----------
+                  SliverToBoxAdapter(
+                    child: _SectionCard(
+                      title: 'Mis fotos',
+                      trailing: IconButton(
+                        tooltip: 'Editar fotos',
+                        icon: const Icon(Icons.photo_library_outlined, color: accent),
+                        onPressed: _openPhotosEditor,
+                      ),
+                      child: (fotoUrls.isEmpty)
+                          ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Aún no has subido fotos.',
+                              style: TextStyle(color: Colors.black.withOpacity(0.6))),
+                          const SizedBox(height: 10),
+                          OutlinedButton.icon(
+                            onPressed: _openPhotosEditor,
+                            icon: const Icon(Icons.add_a_photo_outlined, color: accent),
+                            label: const Text('Añadir fotos', style: TextStyle(color: accent)),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: accent, width: 1.2),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
+                      )
+                          : GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: fotoUrls.length.clamp(0, 9),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                        ),
+                        itemBuilder: (_, i) {
+                          final url = fotoUrls[i];
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(url, fit: BoxFit.cover),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -359,25 +886,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   SliverToBoxAdapter(
                     child: _SectionCard(
                       title: 'Intereses',
-                      child: (interests.isEmpty)
+                      child: ((d['intereses'] as List).cast<String>()).isEmpty
                           ? Text('Aún no has añadido intereses',
                           style: TextStyle(color: Colors.black.withOpacity(0.6)))
                           : Wrap(
                         spacing: 10,
                         runSpacing: 10,
-                        children: interests
+                        children: (d['intereses'] as List<String>)
                             .map((i) => _InterestChip(
                           text: i,
                           icon: _iconForInterest(i.toLowerCase()),
                         ))
                             .toList(),
                       ),
+                      trailing: IconButton(
+                        tooltip: 'Editar intereses',
+                        icon: const Icon(Icons.tune, color: accent),
+                        onPressed: _openInterestsEditor,
+                      ),
                     ),
                   ),
 
-                  // ---------- MI PISO ----------
+                  // ---------- MI PISO (con opción de borrar) ----------
                   SliverToBoxAdapter(
-                    child: _FlatCardPremium(flat: flat),
+                    child: _FlatCardPremium(
+                      flat: flat,
+                      onDeletePressed:
+                      flat == null ? null : () => _confirmAndDeleteFlat(flat),
+                    ),
                   ),
 
                   const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -470,6 +1006,49 @@ class _StatPill extends StatelessWidget {
   }
 }
 
+// NUEVO: pill de acción para abrir Favoritos
+class _ActionPill extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final VoidCallback onTap;
+  const _ActionPill({required this.icon, required this.text, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: Colors.black87),
+              const SizedBox(width: 6),
+              Text(
+                text,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionCard extends StatelessWidget {
   final String title;
   final Widget child;
@@ -499,8 +1078,8 @@ class _SectionCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(title,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                  child:
+                  Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                 ),
                 if (trailing != null) trailing!,
               ],
@@ -558,7 +1137,8 @@ class _InterestChip extends StatelessWidget {
 
 class _FlatCardPremium extends StatelessWidget {
   final Map<String, dynamic>? flat;
-  const _FlatCardPremium({required this.flat});
+  final VoidCallback? onDeletePressed; // NUEVO callback
+  const _FlatCardPremium({required this.flat, this.onDeletePressed});
 
   static const Color accent = Color(0xFFE3A62F);
 
@@ -666,6 +1246,7 @@ class _FlatCardPremium extends StatelessWidget {
                       ],
                     ),
                   ),
+                  // Ver
                   ElevatedButton(
                     onPressed: () => Navigator.pushNamed(context, '/flat-detail', arguments: flat!['id']),
                     style: ElevatedButton.styleFrom(
@@ -674,6 +1255,18 @@ class _FlatCardPremium extends StatelessWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Text('Ver', style: TextStyle(color: Colors.white)),
+                  ),
+                  const SizedBox(width: 8),
+                  // Eliminar
+                  OutlinedButton.icon(
+                    onPressed: onDeletePressed,
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                    label: const Text('Eliminar', style: TextStyle(color: Colors.redAccent)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.redAccent, width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                 ],
               ),

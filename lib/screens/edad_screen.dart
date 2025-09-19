@@ -28,8 +28,11 @@ class _EdadScreenState extends State<EdadScreen>
   static const int _minEdad = 16;
   static const int _maxEdad = 120;
 
-  // Valor del slider (sincronizado con el input)
-  double _sliderVal = 25;
+  // 👉 Fuente única de verdad
+  int _edad = 25;
+
+  // Para evitar bucles al sincronizar TextField <-> estado
+  bool _muteTextListener = false;
 
   /* -------------- Fondo anim -------------- */
   late final AnimationController _bgCtrl;
@@ -41,6 +44,9 @@ class _EdadScreenState extends State<EdadScreen>
       vsync: this,
       duration: const Duration(seconds: 16),
     )..repeat(reverse: true);
+
+    // Inicializa el input con el valor por defecto
+    _ctrlEdad.text = _edad.toString();
     _ctrlEdad.addListener(_onEdadChanged);
   }
 
@@ -54,6 +60,7 @@ class _EdadScreenState extends State<EdadScreen>
 
   /* -------------- Validación -------------- */
   void _onEdadChanged() {
+    if (_muteTextListener) return; // evita bucle
     final txt = _ctrlEdad.text.trim();
     final n = int.tryParse(txt);
     setState(() {
@@ -67,26 +74,32 @@ class _EdadScreenState extends State<EdadScreen>
         _error = 'Edad no válida';
       } else {
         _error = null;
-        _sliderVal = n.toDouble();
+        _edad = n; // sincroniza estado con input
       }
     });
   }
 
-  bool get _isValid {
-    final n = int.tryParse(_ctrlEdad.text.trim());
-    return n != null && n >= _minEdad && n <= _maxEdad && _error == null;
-  }
+  bool get _isValid =>
+      _edad >= _minEdad && _edad <= _maxEdad && _error == null;
 
-  int _safeEdad() {
-    final n = int.tryParse(_ctrlEdad.text.trim());
-    if (n == null) return _minEdad;
-    return n.clamp(_minEdad, _maxEdad);
+  /* -------------- Helpers de estado -------------- */
+  void _setEdad(int v) {
+    final val = v.clamp(_minEdad, _maxEdad);
+    HapticFeedback.selectionClick();
+    setState(() {
+      _edad = val;
+      _error = null;
+      _muteTextListener = true;
+      _ctrlEdad.text = _edad.toString();
+      _ctrlEdad.selection =
+          TextSelection.fromPosition(TextPosition(offset: _ctrlEdad.text.length));
+      _muteTextListener = false;
+    });
   }
 
   /* -------------- Acciones -------------- */
   Future<void> _onContinuar() async {
     if (!_isValid) {
-      // activa mensajes de error del form si hay
       _formKey.currentState?.validate();
       HapticFeedback.heavyImpact();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -99,7 +112,7 @@ class _EdadScreenState extends State<EdadScreen>
     setState(() => _guardando = true);
 
     final uid = _supabase.auth.currentUser!.id;
-    final age = _safeEdad();
+    final age = _edad;
 
     try {
       await _supabase.from('usuarios').update({'edad': age}).eq('id', uid);
@@ -117,27 +130,8 @@ class _EdadScreenState extends State<EdadScreen>
     }
   }
 
-  void _inc() {
-    final v = (_safeEdad() + 1).clamp(_minEdad, _maxEdad);
-    _applyEdad(v);
-  }
-
-  void _dec() {
-    final v = (_safeEdad() - 1).clamp(_minEdad, _maxEdad);
-    _applyEdad(v);
-  }
-
-  void _applyEdad(int v) {
-    HapticFeedback.selectionClick();
-    setState(() {
-      _ctrlEdad.text = v.toString();
-      _ctrlEdad.selection = TextSelection.fromPosition(
-        TextPosition(offset: _ctrlEdad.text.length),
-      );
-      _sliderVal = v.toDouble();
-      _error = null;
-    });
-  }
+  void _inc() => _setEdad(_edad + 1);
+  void _dec() => _setEdad(_edad - 1);
 
   /* -------------- UI -------------- */
   @override
@@ -313,7 +307,7 @@ class _EdadScreenState extends State<EdadScreen>
                                             width: 1.6,
                                           ),
                                         ),
-                                        hintText: '25',
+                                        // quitamos hint para no confundir con valor real
                                         suffixText: 'años',
                                         suffixStyle: TextStyle(
                                           color: Colors.black.withOpacity(.55),
@@ -321,9 +315,8 @@ class _EdadScreenState extends State<EdadScreen>
                                         ),
                                       ),
                                       validator: (_) => _error,
-                                      onFieldSubmitted: (_) => _isValid && !_guardando
-                                          ? _onContinuar()
-                                          : null,
+                                      onFieldSubmitted: (_) =>
+                                      _isValid && !_guardando ? _onContinuar() : null,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -337,8 +330,7 @@ class _EdadScreenState extends State<EdadScreen>
                               const SizedBox(height: 12),
                               // Mensaje de error / ayuda
                               Text(
-                                _error ??
-                                    'Rango permitido: $_minEdad–$_maxEdad',
+                                _error ?? 'Rango permitido: $_minEdad–$_maxEdad',
                                 style: TextStyle(
                                   fontSize: 13.2,
                                   fontWeight: FontWeight.w500,
@@ -350,7 +342,7 @@ class _EdadScreenState extends State<EdadScreen>
 
                               const SizedBox(height: 24),
 
-                              // Slider sincronizado
+                              // Slider sincronizado (pasos de 1)
                               SliderTheme(
                                 data: SliderTheme.of(context).copyWith(
                                   trackHeight: 6,
@@ -362,12 +354,9 @@ class _EdadScreenState extends State<EdadScreen>
                                 child: Slider(
                                   min: _minEdad.toDouble(),
                                   max: _maxEdad.toDouble(),
-                                  value: _sliderVal.clamp(
-                                      _minEdad.toDouble(), _maxEdad.toDouble()),
-                                  onChanged: (v) {
-                                    final iv = v.round().clamp(_minEdad, _maxEdad);
-                                    _applyEdad(iv);
-                                  },
+                                  divisions: _maxEdad - _minEdad, // 👈 pasos de 1
+                                  value: _edad.toDouble(),
+                                  onChanged: (v) => _setEdad(v.round()),
                                   activeColor: colorPrincipal,
                                   inactiveColor: Colors.black.withOpacity(.08),
                                 ),
