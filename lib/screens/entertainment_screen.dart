@@ -1,3 +1,4 @@
+import 'package:chillroom/features/super_interests/super_interests_choice_screen.dart';
 import 'package:chillroom/screens/upload_photos_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -104,14 +105,29 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
     }
 
     try {
+      // 1) Guardar entretenimiento
       await supabase
           .from('perfiles')
           .update({'entretenimiento': _lstSeleccionados})
           .eq('usuario_id', user.id);
 
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
+
+      // 2) Paso intermedio: Super Intereses (esperamos resultado)
+      final res = await Navigator.of(context).push<String>(
+        MaterialPageRoute(builder: (_) => const SuperInterestsChoiceScreen()),
+      );
+      if (!mounted) return;
+
+      // (Opcional) pequeño feedback si volvió con 'saved'
+      if (res == 'saved') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('¡Super interés guardado!')),
+        );
+      }
+
+      // 3) Continuar a subir fotos
+      Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const UploadPhotosScreen()),
       );
     } catch (e) {
@@ -119,9 +135,11 @@ class _EntertainmentScreenState extends State<EntertainmentScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al guardar los gustos: $e')),
       );
-      setState(() => _guardando = false);
+    } finally {
+      if (mounted) setState(() => _guardando = false);
     }
   }
+
 
   bool get _isValid => _lstSeleccionados.isNotEmpty && !_guardando;
 
