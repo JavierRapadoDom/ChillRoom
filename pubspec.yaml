@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  supabase_flutter: ^2.8.4
+  supabase_flutter: ^2.10.1
   image_picker: ^1.1.2
 
   # The following adds the Cupertino Icons font to your application.
@@ -82,7 +82,12 @@ flutter:
     - assets/botonApple.png
     - assets/ChauPhilomeneOne-Regular.ttf
     - assets/mock/
+    # Juegos (portadas)
+    - assets/games/
+
+    # Fútbol (escudos por ligas o categorías)
     - assets/teams/la_liga/
+    - assets/teams/premier_league/
 
 
   # An image asset can refer to one or more resolution-specific "variants", see

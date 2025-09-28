@@ -1,6 +1,4 @@
-// lib/screens/profile_screen.dart
 import 'dart:io';
-
 import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -14,9 +12,18 @@ import 'favorites_screen.dart';
 import 'messages_screen.dart';
 import 'package:chillroom/widgets/feedback_sheet.dart';
 
+// NUEVO (música / Spotify)
+import '../features/super_interests/music_super_interest_screen.dart';
+import '../features/super_interests/spotify_auth_client.dart';
+
+// Secciones y tarjetas refactorizadas
+import '../widgets/profile/sections/music_section.dart';
+import '../widgets/profile/sections/gaming_section.dart';
+import '../widgets/profile/sections/football_section.dart';
+import '../widgets/profile/cards.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
-
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -30,8 +37,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _selectedBottom = 3;
 
   late Future<Map<String, dynamic>> _futureData;
+  final ImagePicker _picker = ImagePicker();
 
-  // --- Listas canónicas para el editor de intereses (mismo copy que en onboarding) ---
+  // --- Listas canónicas para el editor de intereses ---
   static const List<String> _estiloVidaOpc = <String>[
     'Trabajo en casa', 'Madrugador', 'Nocturno', 'Estudiante', 'Minimalista', 'Jardinería',
   ];
@@ -42,9 +50,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'Videojuegos', 'Series', 'Películas', 'Teatro', 'Lectura', 'Podcasts', 'Música',
   ];
 
-  // --- Image picker para editar fotos ---
-  final ImagePicker _picker = ImagePicker();
-
   @override
   void initState() {
     super.initState();
@@ -52,9 +57,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _futureData = _loadData();
   }
 
-  String _publicUrlForKey(String key) {
-    return _supabase.storage.from('profile.photos').getPublicUrl(key);
-  }
+  String _publicUrlForKey(String key) =>
+      _supabase.storage.from('profile.photos').getPublicUrl(key);
 
   Future<Map<String, dynamic>> _loadData() async {
     final uid = _supabase.auth.currentUser!.id;
@@ -67,7 +71,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final prof = await _supabase
         .from('perfiles')
-        .select('biografia, estilo_vida, deportes, entretenimiento, fotos')
+    // 👈 añadimos super_interest si existe esa columna (no pasa nada si viene null)
+        .select('biografia, estilo_vida, deportes, entretenimiento, fotos, super_interes')
         .eq('usuario_id', uid)
         .single();
 
@@ -78,13 +83,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final flat = (flats as List).isNotEmpty ? flats.first as Map<String, dynamic> : null;
 
-    // Fotos: guardamos tanto las keys crudas como sus URLs públicas (para el UI)
-    final List<String> fotoKeys = List<String>.from(prof['fotos'] ?? []);
+    // Fotos
+    final List<String> fotoKeys = List<String>.from(prof['fotos'] ?? const []);
     final List<String> fotoUrls = fotoKeys.map((f) => f.startsWith('http') ? f : _publicUrlForKey(f)).toList();
+    final String? avatar = fotoUrls.isNotEmpty ? fotoUrls.first : null;
 
-    String? avatar;
-    if (fotoUrls.isNotEmpty) {
-      avatar = fotoUrls.first;
+    // ---- Música ----
+    final hasSpotify = await _supabase
+        .from('spotify_tokens')
+        .select('user_id')
+        .eq('user_id', uid)
+        .maybeSingle()
+        .then((row) => row != null);
+
+    final hasMusicPrefs = await _supabase
+        .from('user_music_prefs')
+        .select('user_id')
+        .eq('user_id', uid)
+        .maybeSingle()
+        .then((row) => row != null)
+        .catchError((_) => false);
+
+    List<Map<String, dynamic>> topArtists = const [];
+    List<Map<String, dynamic>> topTracks = const [];
+    // topX solo si finalmente queda música como super interés (lo decidimos más abajo)
+    // para no hacer llamadas de más.
+
+    // ---- Videojuegos ----
+    final gaming = await _supabase
+        .from('user_gaming_prefs')
+        .select('platforms, genres, fav_games, hours_per_week, gamer_tags')
+        .eq('user_id', uid)
+        .maybeSingle()
+        .catchError((_) => null);
+
+    final hasGaming = gaming != null &&
+        ((gaming['platforms'] ?? []).isNotEmpty ||
+            (gaming['fav_games'] ?? []).isNotEmpty ||
+            gaming['hours_per_week'] != null);
+
+    // ---- Fútbol ----
+    final football = await _supabase
+        .from('user_football_prefs')
+        .select('team, player, competitions, plays_5aside, position, crest_asset')
+        .eq('user_id', uid)
+        .maybeSingle()
+        .catchError((_) => null);
+
+    final hasFootball = football != null &&
+        ((football['team'] ?? '') as String).trim().isNotEmpty;
+
+    // ---- Decidir super interés ----
+    // 1) Si existe en BD, respetarlo.
+    // 2) Si no, inferir por prioridad: music > gaming > football.
+    String? superInterest =
+    (prof['super_interes'] as String?)?.trim().isNotEmpty == true
+        ? (prof['super_interes'] as String).trim()
+        : null;
+
+    if (superInterest == null) {
+      if (hasSpotify || hasMusicPrefs) {
+        superInterest = 'music';
+      } else if (hasGaming) {
+        superInterest = 'gaming';
+      } else if (hasFootball) {
+        superInterest = 'football';
+      }
+    }
+
+    // Si finalmente es música y hay Spotify, ya pedimos top artistas/tracks
+    if (superInterest == 'music' && hasSpotify) {
+      try {
+        topArtists = await SpotifyAuthClient.instance.getTopArtists(limit: 8);
+        topTracks = await SpotifyAuthClient.instance.getTopTracks(limit: 5);
+      } catch (_) { /* silencioso */ }
     }
 
     return {
@@ -92,34 +164,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'edad': user['edad'],
       'rol': _formatRole(user['rol']),
       'bio': prof['biografia'] ?? '',
-      'estilo_vida': List<String>.from(prof['estilo_vida'] ?? []),
-      'deportes': List<String>.from(prof['deportes'] ?? []),
-      'entretenimiento': List<String>.from(prof['entretenimiento'] ?? []),
-      // Merged interests solo para mostrar chips
+      'estilo_vida': List<String>.from(prof['estilo_vida'] ?? const []),
+      'deportes': List<String>.from(prof['deportes'] ?? const []),
+      'entretenimiento': List<String>.from(prof['entretenimiento'] ?? const []),
       'intereses': [
-        ...List<String>.from(prof['estilo_vida'] ?? []),
-        ...List<String>.from(prof['deportes'] ?? []),
-        ...List<String>.from(prof['entretenimiento'] ?? []),
+        ...List<String>.from(prof['estilo_vida'] ?? const []),
+        ...List<String>.from(prof['deportes'] ?? const []),
+        ...List<String>.from(prof['entretenimiento'] ?? const []),
       ],
       'avatar': avatar,
       'flat': flat,
       'photosCount': fotoUrls.length,
-      'fotoKeys': fotoKeys,
       'fotoUrls': fotoUrls,
+
+      // Super interés decidido
+      'super_interes': superInterest,
+
+      // Música
+      'has_spotify': hasSpotify,
+      'music_top_artists': topArtists,
+      'music_top_tracks': topTracks,
+
+      // Gaming
+      'gaming': {
+        'has': hasGaming,
+        'platforms': List<String>.from(gaming?['platforms'] ?? const []),
+        'genres': List<String>.from(gaming?['genres'] ?? const []),
+        'fav_games': List<String>.from(gaming?['fav_games'] ?? const []),
+        'hours_per_week': gaming?['hours_per_week'],
+        'gamer_tags': Map<String, dynamic>.from(gaming?['gamer_tags'] ?? const {}),
+      },
+
+      // Fútbol
+      'football': {
+        'has': hasFootball,
+        'team': (football?['team'] as String?) ?? '',
+        'player': (football?['player'] as String?) ?? '',
+        'competitions': List<String>.from(football?['competitions'] ?? const []),
+        'plays_5aside': (football?['plays_5aside'] as bool?) ?? false,
+        'position': (football?['position'] as String?) ?? '',
+        'crest_asset': (football?['crest_asset'] as String?),
+      },
     };
   }
 
+
+
   String _formatRole(String r) {
     switch (r) {
-      case 'busco_piso':
-        return '🏠 Busco piso';
-      case 'busco_compañero':
-        return '🤝 Busco compañero';
-      default:
-        return '🔍 Explorando';
+      case 'busco_piso': return '🏠 Busco piso';
+      case 'busco_compañero': return '🤝 Busco compañero';
+      default: return '🔍 Explorando';
     }
   }
 
+  // --------- Acciones (editar bio / intereses / fotos) ---------
   void _openBioDialog(String current) {
     final ctrl = TextEditingController(text: current);
     showDialog(
@@ -160,10 +259,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // === Editor de intereses (sin setState async) ===
   Future<void> _openInterestsEditor() async {
     final uid = _supabase.auth.currentUser!.id;
-
     final prof = await _supabase
         .from('perfiles')
         .select('estilo_vida, deportes, entretenimiento')
@@ -173,7 +270,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final currentEstiloVida = <String>{...List<String>.from(prof?['estilo_vida'] ?? const [])};
     final currentDeportes = <String>{...List<String>.from(prof?['deportes'] ?? const [])};
     final currentEntretenimiento = <String>{...List<String>.from(prof?['entretenimiento'] ?? const [])};
-
     if (!mounted) return;
 
     await showModalBottomSheet<void>(
@@ -191,6 +287,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (saving) return;
               setModalState(() => saving = true);
 
+              final uid = _supabase.auth.currentUser!.id;
               await _supabase.from('perfiles').upsert(
                 {
                   'usuario_id': uid,
@@ -201,9 +298,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onConflict: 'usuario_id',
               );
 
-              if (Navigator.of(sheetCtx).canPop()) {
-                Navigator.of(sheetCtx).pop();
-              }
+              if (Navigator.of(sheetCtx).canPop()) Navigator.of(sheetCtx).pop();
               if (!mounted) return;
               setState(() {
                 _futureData = _loadData();
@@ -221,22 +316,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 8, runSpacing: 8,
                     children: options.map((opt) {
                       final sel = selected.contains(opt);
                       return FilterChip(
                         label: Text(opt),
                         selected: sel,
-                        onSelected: (v) {
-                          setModalState(() {
-                            if (v) {
-                              selected.add(opt);
-                            } else {
-                              selected.remove(opt);
-                            }
-                          });
-                        },
+                        onSelected: (v) => setModalState(() {
+                          if (v) selected.add(opt); else selected.remove(opt);
+                        }),
                         selectedColor: accent.withOpacity(0.15),
                         checkmarkColor: accent,
                         side: BorderSide(color: sel ? accent : Colors.grey.shade300),
@@ -248,51 +336,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }
 
             return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
-              ),
+              padding: EdgeInsets.only(bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Center(
-                      child: Container(
-                        width: 42,
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
+                      child: Container(width: 42, height: 4, margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(999)),),
                     ),
-                    const Text('Editar intereses',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                    const Text('Editar intereses', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                     const SizedBox(height: 6),
                     Text('Actualiza lo que te define en ChillRoom.',
                         style: TextStyle(color: Colors.black.withOpacity(0.6))),
                     const SizedBox(height: 14),
-
                     buildGroup('Estilo de vida', _estiloVidaOpc, currentEstiloVida),
                     buildGroup('Deportes', _deportesOpc, currentDeportes),
                     buildGroup('Entretenimiento', _entretenimientoOpc, currentEntretenimiento),
-
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: saving ? null : onSave,
                         icon: saving
-                            ? const SizedBox(
-                            width: 18, height: 18,
+                            ? const SizedBox(width: 18, height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
                             : const Icon(Icons.save_outlined),
                         label: Text(saving ? 'Guardando...' : 'Guardar'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
-                          foregroundColor: Colors.white,
+                          backgroundColor: accent, foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -308,11 +382,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // === NUEVO: Editor de fotos ===
   Future<void> _openPhotosEditor() async {
     final uid = _supabase.auth.currentUser!.id;
-
-    // Leer listado actual de keys
     final prof = await _supabase
         .from('perfiles')
         .select('fotos')
@@ -320,11 +391,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .maybeSingle();
 
     final List<String> currentKeys = List<String>.from(prof?['fotos'] ?? const []);
-
-    // Modelo simple en memoria: keys existentes + ficheros nuevos
-    final List<String> keptKeys = [...currentKeys]; // se van eliminando desde UI
-    final List<File> newFiles = [];                 // añadidos desde galería
-
+    final List<String> keptKeys = [...currentKeys];
+    final List<File> newFiles = [];
     if (!mounted) return;
 
     await showModalBottomSheet<void>(
@@ -340,7 +408,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Future<void> addPhoto() async {
           final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
           if (picked == null) return;
-          // añadir a la lista de nuevos y refrescar
           newFiles.add(File(picked.path));
           (sheetCtx as Element).markNeedsBuild();
         }
@@ -351,23 +418,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           (sheetCtx as Element).markNeedsBuild();
 
           final List<String> finalKeys = [...keptKeys];
-
-          // Subir nuevos
           for (final f in newFiles) {
             final fileName = '$uid/${DateTime.now().millisecondsSinceEpoch}_${finalKeys.length}.jpg';
             await _supabase.storage.from('profile.photos').upload(fileName, f);
             finalKeys.add(fileName);
           }
-
-          // Persistir en DB
           await _supabase.from('perfiles').upsert(
             {'usuario_id': uid, 'fotos': finalKeys},
             onConflict: 'usuario_id',
           );
 
-          if (Navigator.of(sheetCtx).canPop()) {
-            Navigator.of(sheetCtx).pop();
-          }
+          if (Navigator.of(sheetCtx).canPop()) Navigator.of(sheetCtx).pop();
           if (!mounted) return;
           setState(() {
             _futureData = _loadData();
@@ -388,19 +449,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               Positioned(
-                top: 6,
-                right: 6,
+                top: 6, right: 6,
                 child: InkWell(
-                  onTap: () {
-                    keptKeys.remove(key);
-                    (sheetCtx as Element).markNeedsBuild();
-                  },
+                  onTap: () { keptKeys.remove(key); (sheetCtx as Element).markNeedsBuild(); },
                   child: Container(
                     padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.55),
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                     child: const Icon(Icons.close, size: 16, color: Colors.white),
                   ),
                 ),
@@ -419,19 +473,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               Positioned(
-                top: 6,
-                right: 6,
+                top: 6, right: 6,
                 child: InkWell(
-                  onTap: () {
-                    newFiles.remove(file);
-                    (sheetCtx as Element).markNeedsBuild();
-                  },
+                  onTap: () { newFiles.remove(file); (sheetCtx as Element).markNeedsBuild(); },
                   child: Container(
                     padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.55),
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                     child: const Icon(Icons.close, size: 16, color: Colors.white),
                   ),
                 ),
@@ -455,44 +502,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
 
         return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
-          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
           child: SafeArea(
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Center(
                     child: Container(
-                      width: 42,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
+                      width: 42, height: 4, margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
                   ),
-                  const Text('Editar fotos',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const Text('Editar fotos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 8),
                   Text('Añade o elimina fotos de tu perfil.',
                       style: TextStyle(color: Colors.black.withOpacity(0.6))),
                   const SizedBox(height: 12),
 
-                  // Grid
                   Flexible(
                     child: GridView.builder(
                       shrinkWrap: true,
                       itemCount: keptKeys.length + newFiles.length + 1,
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
+                        crossAxisCount: 3, mainAxisSpacing: 10, crossAxisSpacing: 10,
                       ),
                       itemBuilder: (_, i) {
                         if (i == keptKeys.length + newFiles.length) return addTile();
@@ -506,16 +544,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: saving ? null : onSave,
-                      icon: saving
-                          ? const SizedBox(
-                          width: 18, height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
-                          : const Icon(Icons.save_outlined),
-                      label: Text(saving ? 'Guardando...' : 'Guardar'),
+                      onPressed: onSave,
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Guardar'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: accent,
-                        foregroundColor: Colors.white,
+                        backgroundColor: accent, foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
@@ -530,6 +563,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // --------- Navegación y sesión ---------
   void _openFavorites() {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen()));
   }
@@ -538,17 +572,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (idx == _selectedBottom) return;
     Widget dest;
     switch (idx) {
-      case 0:
-        dest = const HomeScreen();
-        break;
-      case 1:
-        dest = const CommunityScreen();
-        break;
-      case 2:
-        dest = const MessagesScreen();
-        break;
-      default:
-        dest = const ProfileScreen();
+      case 0: dest = const HomeScreen(); break;
+      case 1: dest = const CommunityScreen(); break;
+      case 2: dest = const MessagesScreen(); break;
+      default: dest = const ProfileScreen();
     }
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
     _selectedBottom = idx;
@@ -558,75 +585,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await _auth.cerrarSesion();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
-  }
-
-  IconData _iconForInterest(String interestLower) {
-    final i = interestLower;
-    if (i.contains('futbol') || i.contains('fútbol') || i.contains('soccer')) return Icons.sports_soccer;
-    if (i.contains('balonc') || i.contains('basket')) return Icons.sports_basketball;
-    if (i.contains('gym') || i.contains('gimnas') || i.contains('pesas')) return Icons.fitness_center;
-    if (i.contains('yoga') || i.contains('medit')) return Icons.self_improvement;
-    if (i.contains('running') || i.contains('correr')) return Icons.directions_run;
-    if (i.contains('cine') || i.contains('pel')) return Icons.local_movies;
-    if (i.contains('serie')) return Icons.tv;
-    if (i.contains('música') || i.contains('musica') || i.contains('music')) return Icons.music_note;
-    if (i.contains('viaj')) return Icons.flight_takeoff;
-    if (i.contains('leer') || i.contains('libro')) return Icons.menu_book;
-    if (i.contains('arte') || i.contains('pint')) return Icons.brush;
-    if (i.contains('cocina') || i.contains('cocinar')) return Icons.restaurant_menu;
-    if (i.contains('videojuego') || i.contains('gaming') || i.contains('game')) return Icons.sports_esports;
-    if (i.contains('tecno') || i.contains('program') || i.contains('dev')) return Icons.memory;
-    return Icons.local_fire_department;
-  }
-
-  // =========================
-  // NUEVO: Borrado de piso
-  // =========================
-  Future<void> _confirmAndDeleteFlat(Map<String, dynamic> flat) async {
-    final address = (flat['direccion'] ?? '').toString();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Eliminar piso'),
-        content: Text(
-          address.isNotEmpty
-              ? 'Vas a eliminar el piso en:\n\n$address\n\nEsta acción no se puede deshacer.'
-              : 'Vas a eliminar tu piso.\n\nEsta acción no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.delete_forever),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.pop(context, true),
-            label: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      await _deleteFlat(flat['id'].toString());
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Piso eliminado')),
-      );
-      setState(() {
-        _futureData = _loadData(); // refrescar perfil
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al eliminar: $e')),
-      );
-    }
-  }
-
-  Future<void> _deleteFlat(String id) async {
-    // RLS: el usuario debe ser anfitrión del piso (anfitrion_id = auth.uid())
-    await _supabase.from('publicaciones_piso').delete().eq('id', id);
   }
 
   @override
@@ -642,12 +600,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (snap.hasError) {
             return Center(child: Text('Error: ${snap.error}'));
           }
+
           final d = snap.data!;
-          final avatar = d['avatar'] as String?;
-          final interests = (d['intereses'] as List).cast<String>();
-          final flat = d['flat'] as Map<String, dynamic>?;
-          final photosCount = d['photosCount'] as int? ?? 0;
-          final fotoUrls = (d['fotoUrls'] as List).cast<String>();
+          final String? avatar = d['avatar'] as String?;
+          final List<String> interests = (d['intereses'] as List).cast<String>();
+          final int photosCount = d['photosCount'] as int? ?? 0;
+          final List<String> fotoUrls = (d['fotoUrls'] as List).cast<String>();
+          final String? superInterest = d['super_interes'] as String?;
+
+          // Armamos dinámicamente las secciones del super-interés (solo una)
+          final List<Widget> superInterestSlivers = [];
+          if (superInterest == 'music') {
+            superInterestSlivers.add(
+              SliverToBoxAdapter(
+                child: MusicSection(
+                  hasSpotify: d['has_spotify'] == true,
+                  topArtists:
+                  (d['music_top_artists'] as List).cast<Map<String, dynamic>>(),
+                  topTracks:
+                  (d['music_top_tracks'] as List).cast<Map<String, dynamic>>(),
+                  enabled: true,
+                  onConnect: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MusicSuperInterestScreen()),
+                  ),
+                ),
+              ),
+            );
+          } else if (superInterest == 'gaming') {
+            superInterestSlivers.add(
+              SliverToBoxAdapter(
+                child: GamingSection(
+                  data: Map<String, dynamic>.from(
+                    (d['gaming'] as Map?) ?? const {},
+                  ),
+                ),
+              ),
+            );
+          } else if (superInterest == 'football') {
+            superInterestSlivers.add(
+              SliverToBoxAdapter(
+                child: FootballSection(
+                  data: Map<String, dynamic>.from(
+                    (d['football'] as Map?) ?? const {},
+                  ),
+                ),
+              ),
+            );
+          }
 
           return Stack(
             children: [
@@ -660,77 +660,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     elevation: 0,
                     backgroundColor: Colors.transparent,
                     flexibleSpace: FlexibleSpaceBar(
-                      background: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          // fondo suave
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Color(0xFFFFF4DC), Color(0xFFF9F7F2)],
-                              ),
-                            ),
-                          ),
-                          // Avatar grande con anillo
-                          Align(
-                            alignment: const Alignment(0, 0.45),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: const LinearGradient(colors: [accent, accentDark]),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.12),
-                                        blurRadius: 16,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ],
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 56,
-                                    backgroundImage: (avatar != null) ? NetworkImage(avatar) : null,
-                                    backgroundColor: const Color(0x33E3A62F),
-                                    child: (avatar == null)
-                                        ? const Icon(Icons.person, size: 56, color: accent)
-                                        : null,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
-                                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  d['rol'] as String,
-                                  style: TextStyle(color: Colors.black.withOpacity(0.6), fontSize: 14.5),
-                                ),
-                                const SizedBox(height: 14),
-                                // Stats + NUEVO botón Favoritos
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _StatPill(icon: Icons.photo_camera_outlined, label: '$photosCount', caption: 'Fotos'),
-                                    const SizedBox(width: 10),
-                                    _StatPill(icon: Icons.star_border, label: '${interests.length}', caption: 'Intereses'),
-                                    const SizedBox(width: 10),
-                                    _ActionPill(
-                                      icon: Icons.favorite_border,
-                                      text: 'Favoritos',
-                                      onTap: _openFavorites,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      background: _ProfileHeader(
+                        accent: accent,
+                        accentDark: accentDark,
+                        avatar: avatar,
+                        name: (d['nombre'] ?? '') as String,
+                        age: d['edad'],
+                        roleText: (d['rol'] ?? '') as String,
+                        photosCount: photosCount,
+                        interestsCount: interests.length,
+                        onFavorites: _openFavorites,
                       ),
                     ),
                     leading: Container(
@@ -747,7 +686,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
-                    // Botón Feedback arriba a la derecha
                     actions: [
                       Container(
                         margin: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
@@ -764,6 +702,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ],
                     centerTitle: true,
                   ),
+
+                  // ---------- SUPER INTERÉS DINÁMICO ----------
+                  ...superInterestSlivers,
 
                   // ---------- TARJETA PRINCIPAL ----------
                   SliverToBoxAdapter(
@@ -786,32 +727,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                '¡Hola, ${d['nombre']}!',
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                                '¡Hola, ${(d['nombre'] ?? '') as String}!',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
-
-                            // Editar bio
                             TextButton.icon(
-                              onPressed: () => _openBioDialog(d['bio'] as String),
+                              onPressed: () => _openBioDialog((d['bio'] as String?) ?? ''),
                               icon: const Icon(Icons.edit, size: 18, color: accent),
-                              label: const Text('Bio', style: TextStyle(color: accent, fontWeight: FontWeight.w700)),
+                              label: const Text(
+                                'Bio',
+                                style: TextStyle(color: accent, fontWeight: FontWeight.w700),
+                              ),
                             ),
                             const SizedBox(width: 6),
-
-                            // Publicar piso (si no tiene)
-                            if (flat == null)
+                            if (d['flat'] == null)
                               ElevatedButton.icon(
                                 onPressed: () {
-                                  Navigator.push(context,
-                                      MaterialPageRoute(builder: (_) => const CreateFlatInfoScreen()));
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const CreateFlatInfoScreen(),
+                                    ),
+                                  );
                                 },
                                 icon: const Icon(Icons.add_home),
                                 label: const Text('Publicar piso'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: accent,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                               ),
                           ],
@@ -822,97 +774,83 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   // ---------- MIS FOTOS ----------
                   SliverToBoxAdapter(
-                    child: _SectionCard(
-                      title: 'Mis fotos',
-                      trailing: IconButton(
-                        tooltip: 'Editar fotos',
-                        icon: const Icon(Icons.photo_library_outlined, color: accent),
-                        onPressed: _openPhotosEditor,
-                      ),
-                      child: (fotoUrls.isEmpty)
-                          ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Aún no has subido fotos.',
-                              style: TextStyle(color: Colors.black.withOpacity(0.6))),
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: _openPhotosEditor,
-                            icon: const Icon(Icons.add_a_photo_outlined, color: accent),
-                            label: const Text('Añadir fotos', style: TextStyle(color: accent)),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: accent, width: 1.2),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                          ),
-                        ],
-                      )
-                          : GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: fotoUrls.length.clamp(0, 9),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          mainAxisSpacing: 8,
-                          crossAxisSpacing: 8,
-                        ),
-                        itemBuilder: (_, i) {
-                          final url = fotoUrls[i];
-                          return ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.network(url, fit: BoxFit.cover),
-                          );
-                        },
-                      ),
+                    child: PhotosCard(
+                      fotoUrls: fotoUrls,
+                      onEdit: _openPhotosEditor,
                     ),
                   ),
 
                   // ---------- BIO ----------
                   SliverToBoxAdapter(
-                    child: _SectionCard(
-                      title: 'Biografía',
-                      child: Text(
-                        (d['bio'] as String).trim().isEmpty ? 'Sin biografía' : d['bio'] as String,
-                        style: TextStyle(color: Colors.black.withOpacity(0.85), height: 1.35),
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.edit, color: accent),
-                        onPressed: () => _openBioDialog(d['bio'] as String),
-                      ),
+                    child: BioCard(
+                      bio: (d['bio'] as String?) ?? '',
+                      onEdit: () => _openBioDialog((d['bio'] as String?) ?? ''),
                     ),
                   ),
 
                   // ---------- INTERESES ----------
                   SliverToBoxAdapter(
-                    child: _SectionCard(
-                      title: 'Intereses',
-                      child: ((d['intereses'] as List).cast<String>()).isEmpty
-                          ? Text('Aún no has añadido intereses',
-                          style: TextStyle(color: Colors.black.withOpacity(0.6)))
-                          : Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: (d['intereses'] as List<String>)
-                            .map((i) => _InterestChip(
-                          text: i,
-                          icon: _iconForInterest(i.toLowerCase()),
-                        ))
-                            .toList(),
-                      ),
-                      trailing: IconButton(
-                        tooltip: 'Editar intereses',
-                        icon: const Icon(Icons.tune, color: accent),
-                        onPressed: _openInterestsEditor,
-                      ),
+                    child: InterestsCard(
+                      intereses: interests,
+                      onEdit: _openInterestsEditor,
                     ),
                   ),
 
-                  // ---------- MI PISO (con opción de borrar) ----------
+                  // ---------- MI PISO ----------
                   SliverToBoxAdapter(
-                    child: _FlatCardPremium(
-                      flat: flat,
-                      onDeletePressed:
-                      flat == null ? null : () => _confirmAndDeleteFlat(flat),
+                    child: FlatCardPremium(
+                      flat: d['flat'] as Map<String, dynamic>?,
+                      onDeletePressed: (d['flat'] == null)
+                          ? null
+                          : () async {
+                        final flat = d['flat'] as Map<String, dynamic>;
+                        final address = (flat['direccion'] ?? '').toString();
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('Eliminar piso'),
+                            content: Text(
+                              address.isNotEmpty
+                                  ? 'Vas a eliminar el piso en:\n\n$address\n\nEsta acción no se puede deshacer.'
+                                  : 'Vas a eliminar tu piso.\n\nEsta acción no se puede deshacer.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancelar'),
+                              ),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.delete_forever),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.redAccent,
+                                ),
+                                onPressed: () => Navigator.pop(context, true),
+                                label: const Text('Eliminar'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed == true) {
+                          try {
+                            await _supabase
+                                .from('publicaciones_piso')
+                                .delete()
+                                .eq('id', flat['id'].toString());
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Piso eliminado')),
+                            );
+                            setState(() {
+                              _futureData = _loadData(); // <- setState síncrono
+                            });
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error al eliminar: $e')),
+                            );
+                          }
+                        }
+                      },
                     ),
                   ),
 
@@ -947,10 +885,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.redAccent,
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
-                            child: const Text('Cerrar sesión',
-                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                            child: const Text(
+                              'Cerrar sesión',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -968,312 +913,89 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+
 }
 
-// ---------- WIDGETS AUXILIARES ----------
+// ========== Header separado ==========
+class _ProfileHeader extends StatelessWidget {
+  final Color accent;
+  final Color accentDark;
+  final String? avatar;
+  final String name;
+  final int? age;
+  final String roleText;
+  final int photosCount;
+  final int interestsCount;
+  final VoidCallback onFavorites;
 
-class _StatPill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String caption;
-  const _StatPill({required this.icon, required this.label, required this.caption});
+  const _ProfileHeader({
+    required this.accent,
+    required this.accentDark,
+    required this.avatar,
+    required this.name,
+    required this.age,
+    required this.roleText,
+    required this.photosCount,
+    required this.interestsCount,
+    required this.onFavorites,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(999),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: Colors.black87),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(width: 6),
-          Text(caption, style: TextStyle(color: Colors.black.withOpacity(0.55))),
-        ],
-      ),
-    );
-  }
-}
-
-// NUEVO: pill de acción para abrir Favoritos
-class _ActionPill extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final VoidCallback onTap;
-  const _ActionPill({required this.icon, required this.text, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              )
-            ],
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 16, color: Colors.black87),
-              const SizedBox(width: 6),
-              Text(
-                text,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  final String title;
-  final Widget child;
-  final Widget? trailing;
-  const _SectionCard({required this.title, required this.child, this.trailing});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 12, 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child:
-                  Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-                ),
-                if (trailing != null) trailing!,
-              ],
-            ),
-            const SizedBox(height: 10),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InterestChip extends StatelessWidget {
-  final String text;
-  final IconData icon;
-  const _InterestChip({required this.text, required this.icon});
-
-  static const Color accent = Color(0xFFE3A62F);
-  static const Color accentDark = Color(0xFFD69412);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: const LinearGradient(colors: [accent, accentDark]),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: Colors.white),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 13.5,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xFFFFF4DC), Color(0xFFF9F7F2)],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FlatCardPremium extends StatelessWidget {
-  final Map<String, dynamic>? flat;
-  final VoidCallback? onDeletePressed; // NUEVO callback
-  const _FlatCardPremium({required this.flat, this.onDeletePressed});
-
-  static const Color accent = Color(0xFFE3A62F);
-
-  String? _firstPhotoUrl(Map<String, dynamic> f) {
-    final fotos = List<String>.from(f['fotos'] ?? []);
-    if (fotos.isEmpty) return null;
-    final first = fotos.first;
-    return first.startsWith('http')
-        ? first
-        : Supabase.instance.client.storage.from('flat.photos').getPublicUrl(first);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (flat == null) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 14,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
+        ),
+        Align(
+          alignment: const Alignment(0, 0.45),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 46,
-                height: 46,
-                decoration: const BoxDecoration(
-                  color: Color(0x33E3A62F),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
+                  gradient: LinearGradient(colors: [accent, accentDark]),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 16, offset: const Offset(0, 6))],
                 ),
-                child: const Icon(Icons.home, color: accent),
+                child: CircleAvatar(
+                  radius: 56,
+                  backgroundImage: (avatar != null) ? NetworkImage(avatar!) : null,
+                  backgroundColor: const Color(0x33E3A62F),
+                  child: (avatar == null) ? Icon(Icons.person, size: 56, color: accent) : null,
+                ),
               ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text('Aún no tienes un piso publicado',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              Text(
+                '$name${age != null ? ', $age' : ''}',
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const CreateFlatInfoScreen()),
-                  );
-                },
-                child: const Text('Publicar'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final url = _firstPhotoUrl(flat!);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.hardEdge,
-        child: Column(
-          children: [
-            if (url != null)
-              Image.network(url, height: 160, width: double.infinity, fit: BoxFit.cover)
-            else
-              Container(
-                height: 160,
-                color: Colors.grey[300],
-                child: const Center(child: Icon(Icons.home, size: 64, color: Colors.white)),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              child: Row(
+              const SizedBox(height: 6),
+              Text(roleText, style: TextStyle(color: Colors.black.withOpacity(0.6), fontSize: 14.5)),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(flat!['direccion'] ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        Text(
-                          flat!['ciudad'] ?? '',
-                          style: TextStyle(color: Colors.black.withOpacity(0.6), fontSize: 13.5),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Ver
-                  ElevatedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/flat-detail', arguments: flat!['id']),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: accent,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Ver', style: TextStyle(color: Colors.white)),
-                  ),
-                  const SizedBox(width: 8),
-                  // Eliminar
-                  OutlinedButton.icon(
-                    onPressed: onDeletePressed,
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
-                    label: const Text('Eliminar', style: TextStyle(color: Colors.redAccent)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.redAccent, width: 1.2),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
+                  const StatPill(icon: Icons.photo_camera_outlined, label: 'Fotos'),
+                  SizedBox(width: 6, child: Center(child: Text('$photosCount'))),
+                  const SizedBox(width: 10),
+                  const StatPill(icon: Icons.star_border, label: 'Intereses'),
+                  SizedBox(width: 6, child: Center(child: Text('$interestsCount'))),
+                  const SizedBox(width: 10),
+                  ActionPill(icon: Icons.favorite_border, text: 'Favoritos', onTap: onFavorites),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

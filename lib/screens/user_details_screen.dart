@@ -1,4 +1,3 @@
-// lib/screens/user_details_screen.dart
 import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,12 +8,16 @@ import '../services/chat_service.dart';
 import '../services/swipe_service.dart';
 
 import 'home_screen.dart';
-import 'favorites_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'chat_detail_screen.dart';
 import 'piso_details_screen.dart';
 import 'package:chillroom/widgets/report_user_sheet.dart';
+
+// NUEVO
+import '../widgets/super_interest_theme.dart';
+import '../widgets/super_interest_header.dart';
+import '../widgets/music_top_lists.dart';
 
 class UserDetailsScreen extends StatefulWidget {
   const UserDetailsScreen({Key? key, required this.userId}) : super(key: key);
@@ -47,7 +50,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
 
   @override
   void dispose() {
-    _pageCtrl.dispose(); // evita memory leaks del PageController
+    _pageCtrl.dispose();
     super.dispose();
   }
 
@@ -55,20 +58,151 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     _futureUser = _loadUser();
   }
 
+  // ---------- HELPERS DE UI ----------
+  Widget _circleBtn(BuildContext ctx, IconData icon, VoidCallback onTap) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(.28),
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(icon: Icon(icon, color: Colors.white), onPressed: onTap),
+    );
+  }
+
+  Widget _whiteCard(Widget child) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _footerCTA({
+    required bool isMe,
+    required bool accepted,
+    required bool pendingIn,
+    required bool pendingOut,
+    required Map<String, dynamic> data,
+    required Color themeColor,
+  }) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(.96),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                child: isMe
+                    ? const _DisabledCTA(text: 'Este es tu perfil')
+                    : (accepted)
+                    ? _PrimaryCTA(
+                  text: 'Ir al chat',
+                  onTap: () async {
+                    final chatId =
+                    await ChatService.instance.getOrCreateChat(widget.userId);
+                    if (!mounted) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChatDetailScreen(
+                          chatId: chatId,
+                          companero: {
+                            'id': widget.userId,
+                            'nombre': data['nombre'],
+                            'foto_perfil': _firstAvatarUrlFrom(data),
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                )
+                    : ((pendingOut || _justRequested) || pendingIn)
+                    ? _DisabledCTA(
+                  text: pendingIn ? 'Solicitud pendiente' : 'Solicitud enviada',
+                )
+                    : GestureDetector(
+                  onTap: () async {
+                    if (!await _tryConsumeSwipe()) return;
+                    await _req.sendRequest(widget.userId);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Solicitud enviada')),
+                    );
+                    setState(() => _justRequested = true);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      gradient: LinearGradient(
+                        colors: [themeColor, themeColor.withOpacity(.85)],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: themeColor.withOpacity(.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'Enviar solicitud',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------- DATA ----------
   Future<Map<String, dynamic>> _loadUser() async {
     final me = _sb.auth.currentUser!.id;
 
     // 1) Usuario
-    final uRows = await _sb
-        .from('usuarios')
-        .select('id,nombre,edad')
-        .eq('id', widget.userId);
+    final uRows =
+    await _sb.from('usuarios').select('id,nombre,edad').eq('id', widget.userId);
     final user = (uRows as List).first as Map<String, dynamic>;
 
-    // 2) Perfil
+    // 2) Perfil (+ super_interes y data)
     final pRows = await _sb
         .from('perfiles')
-        .select('biografia,estilo_vida,deportes,entretenimiento,fotos')
+        .select(
+        'biografia,estilo_vida,deportes,entretenimiento,fotos,super_interes,super_interes_data')
         .eq('usuario_id', widget.userId);
     final prof = (pRows as List).first as Map<String, dynamic>;
 
@@ -91,6 +225,13 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     final rels = (rRows as List).cast<Map<String, dynamic>>();
     final rel = rels.isNotEmpty ? rels.first : null;
 
+    // 5) Preferencias musicales (fallback)
+    final musicPrefs = await _sb
+        .from('user_music_prefs')
+        .select('favorite_artist,defining_song,favorite_genre')
+        .eq('user_id', widget.userId)
+        .maybeSingle();
+
     final fotos = List<String>.from(prof['fotos'] ?? []);
     final intereses = [
       ...List<String>.from(prof['estilo_vida'] ?? const []),
@@ -107,6 +248,9 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       'intereses': intereses,
       'flat': flat,
       'relation': rel,
+      'super_interes': prof['super_interes'],
+      'super_interes_data': prof['super_interes_data'],
+      'music_prefs': musicPrefs,
     };
   }
 
@@ -120,12 +264,9 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Sin acciones'),
-        content: const Text(
-            'Te has quedado sin acciones, ve un anuncio o compra más'),
+        content: const Text('Te has quedado sin acciones, ve un anuncio o compra más'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cerrar')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
         ],
       ),
     );
@@ -148,12 +289,11 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       default:
         dest = const ProfileScreen();
     }
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => dest));
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
     setState(() => _bottomIdx = idx);
   }
 
-  // ---------- Helpers de UI / datos ----------
+  // ---------- Tiny helpers ----------
   String _resolvePhoto(String raw) {
     if (raw.isEmpty) return raw;
     return raw.startsWith('http')
@@ -161,7 +301,6 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
         : _sb.storage.from('profile.photos').getPublicUrl(raw);
   }
 
-  /// Devuelve una URL de avatar válida (si existe) para pasarla al chat.
   String? _firstAvatarUrlFrom(Map<String, dynamic> userData) {
     final fotos = (userData['fotos'] as List?)?.cast<String>() ?? const [];
     if (fotos.isEmpty) return null;
@@ -185,8 +324,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     );
   }
 
-  IconData _iconForInterest(String interestLower) {
-    final i = interestLower;
+  IconData _iconForInterest(String s) {
+    final i = s.toLowerCase();
     if (i.contains('futbol') || i.contains('fútbol') || i.contains('soccer')) {
       return Icons.sports_soccer;
     }
@@ -211,16 +350,16 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     if (i.contains('tecno') || i.contains('program') || i.contains('dev')) {
       return Icons.memory;
     }
-    return Icons.local_fire_department; // default
+    return Icons.local_fire_department;
   }
 
-  Widget _interestChip(String text) {
-    final icon = _iconForInterest(text.toLowerCase());
+  Widget _interestChip(String text, {Color? c1, Color? c2}) {
+    final icon = _iconForInterest(text);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        gradient: const LinearGradient(colors: [accent, accentDark]),
+        gradient: LinearGradient(colors: [c1 ?? accent, c2 ?? accentDark]),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.12),
@@ -247,6 +386,83 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     );
   }
 
+  // ---------- Bloques temáticos no-música (banner) ----------
+  Widget _footballBanner(SuperInterestThemeConf t) {
+    return _themedBanner(
+      t,
+      title: 'Afición al fútbol',
+      subtitle: 'Le flipa el balón: charlad de ligas, equipos y partidazos ⚽️',
+      icon: Icons.sports_soccer,
+    );
+  }
+
+  Widget _gamingBanner(SuperInterestThemeConf t) {
+    return _themedBanner(
+      t,
+      title: 'Gaming a tope',
+      subtitle: 'Consola o PC, el game está presente 🎮',
+      icon: Icons.sports_esports,
+    );
+  }
+
+  Widget _themedBanner(
+      SuperInterestThemeConf t, {
+        required String title,
+        required String subtitle,
+        required IconData icon,
+      }) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 22),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [t.secondary.withOpacity(.9), t.secondary.withOpacity(.8)],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(.06)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(.16), blurRadius: 16, offset: const Offset(0, 10)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Icon(icon, color: t.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: t.primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------- BUILD ----------
   @override
   Widget build(BuildContext context) {
     final myId = _sb.auth.currentUser!.id;
@@ -268,215 +484,155 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
           final rel = d['relation'] as Map<String, dynamic>?;
           final isMe = d['id'] == myId;
           final flat = d['flat'] as Map<String, dynamic>?;
-          final pendingOut = rel != null &&
-              rel['estado'] == 'pendiente' &&
-              rel['emisor_id'] == myId;
-          final pendingIn = rel != null &&
-              rel['estado'] == 'pendiente' &&
-              rel['receptor_id'] == myId;
+          final pendingOut =
+              rel != null && rel['estado'] == 'pendiente' && rel['emisor_id'] == myId;
+          final pendingIn =
+              rel != null && rel['estado'] == 'pendiente' && rel['receptor_id'] == myId;
           final accepted = rel != null && rel['estado'] == 'aceptada';
           final fotos = (d['fotos'] as List).cast<String>();
+          final photos = fotos.isNotEmpty ? fotos.map(_resolvePhoto).toList() : <String>[];
 
-          // Normalizamos imágenes a URLs públicas/absolutas:
-          final allPhotos =
-          fotos.isNotEmpty ? fotos.map(_resolvePhoto).toList() : <String>[];
+          // THEME
+          final theme = SuperInterestThemeConf.fromString(d['super_interes'] as String?);
+
+          // Música: datos para widget
+          final sidata = (d['super_interes_data'] as Map?)?.cast<String, dynamic>() ?? {};
+          final prefs = (d['music_prefs'] as Map?)?.cast<String, dynamic>();
+          final List<Map<String, dynamic>> topArtists = (() {
+            final raw = sidata['top_artists'];
+            if (raw is List) {
+              return raw.map((e) => (e as Map).cast<String, dynamic>()).toList();
+            }
+            final fav = (prefs?['favorite_artist'] as String?)?.trim();
+            return (fav == null || fav.isEmpty)
+                ? <Map<String, dynamic>>[]
+                : [
+              {'name': fav, 'image': null, 'url': null}
+            ];
+          })();
+          final List<Map<String, dynamic>> topTracks = (() {
+            final raw = sidata['top_tracks'];
+            if (raw is List) {
+              return raw.map((e) => (e as Map).cast<String, dynamic>()).toList();
+            }
+            final song = (prefs?['defining_song'] as String?)?.trim();
+            final artist = (prefs?['favorite_artist'] as String?)?.trim();
+            return (song == null || song.isEmpty)
+                ? <Map<String, dynamic>>[]
+                : [
+              {'name': song, 'artist': artist, 'image': null, 'url': null}
+            ];
+          })();
+          final favGenre = (prefs?['favorite_genre'] as String?)?.trim();
 
           return Stack(
             children: [
+              // BG degradado temático
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        theme.bgGradient.first,
+                        theme.bgGradient.last,
+                        Colors.white,
+                      ],
+                      stops: const [0.0, .35, .35],
+                    ),
+                  ),
+                ),
+              ),
+
               CustomScrollView(
                 slivers: [
-                  // HEADER con carrusel
+                  // HEADER
                   SliverAppBar(
                     pinned: true,
                     expandedHeight: 360,
-                    backgroundColor: Colors.white,
+                    backgroundColor: Colors.transparent,
                     elevation: 0,
-                    leading: Container(
-                      margin: const EdgeInsets.only(left: 8, top: 4, bottom: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.25),
-                        shape: BoxShape.circle,
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
-                      ),
+                    leading: _circleBtn(
+                      context,
+                      Icons.arrow_back,
+                          () => Navigator.pop(context),
                     ),
                     actions: [
-                      Container(
-                        margin: const EdgeInsets.only(right: 8, top: 4, bottom: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.25),
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.share, color: Colors.white),
-                          onPressed: () {/* TODO: share */},
-                        ),
-                      ),
+                      _circleBtn(context, Icons.share, () {/* TODO: share */}),
                       if (!isMe)
-                        Container(
-                          margin:
-                          const EdgeInsets.only(right: 8, top: 4, bottom: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.25),
-                            shape: BoxShape.circle,
-                          ),
-                          child: IconButton(
-                            tooltip: 'Reportar usuario',
-                            icon: const Icon(Icons.report_gmailerrorred_rounded,
-                                color: Colors.white),
-                            onPressed: () {
-                              ReportUserSheet.show(
-                                context,
-                                reportedUserId: widget.userId,
-                              );
-                            },
-                          ),
+                        _circleBtn(
+                          context,
+                          Icons.report_gmailerrorred_rounded,
+                              () {
+                            ReportUserSheet.show(
+                              context,
+                              reportedUserId: widget.userId,
+                            );
+                          },
                         ),
                     ],
                     flexibleSpace: FlexibleSpaceBar(
-                      background: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          PageView.builder(
-                            controller: _pageCtrl,
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: (allPhotos.isEmpty ? 1 : allPhotos.length),
-                            onPageChanged: (i) =>
-                                setState(() => _currentPhoto = i),
-                            itemBuilder: (_, i) {
-                              if (allPhotos.isEmpty) {
-                                // Placeholder cuando no hay fotos
-                                return Container(
-                                  color: Colors.grey[300],
-                                  child: const Center(
-                                    child: Icon(Icons.person,
-                                        size: 72, color: Colors.white70),
-                                  ),
-                                );
-                              }
-                              final url = allPhotos[i];
-                              return GestureDetector(
-                                onTap: () => _openFullscreenPhotos(
-                                  allPhotos,
-                                  i,
-                                  heroPrefix,
-                                ),
-                                child: Hero(
-                                  tag: '$heroPrefix-$i',
-                                  child: Image.network(
-                                    url,
-                                    fit: BoxFit.cover,
-                                    gaplessPlayback: true,
-                                    loadingBuilder:
-                                        (context, child, loadingProgress) {
-                                      if (loadingProgress == null) return child;
-                                      return Container(
-                                        color: Colors.grey[200],
-                                        child: const Center(
-                                          child: CircularProgressIndicator(),
-                                        ),
-                                      );
-                                    },
-                                    errorBuilder: (context, error, stack) {
-                                      return Container(
-                                        color: Colors.grey[300],
-                                        child: const Center(
-                                          child: Icon(Icons.broken_image,
-                                              size: 64, color: Colors.white70),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-
-                          // Degradado para legibilidad de iconos
-                          IgnorePointer(
-                            ignoring: true,
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [Colors.black45, Colors.transparent],
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          // Dots clicables
-                          if (allPhotos.length > 1)
-                            Positioned(
-                              bottom: 14,
-                              left: 0,
-                              right: 0,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: List.generate(
-                                  allPhotos.length,
-                                      (i) => GestureDetector(
-                                    onTap: () => _pageCtrl.animateToPage(
-                                      i,
-                                      duration:
-                                      const Duration(milliseconds: 250),
-                                      curve: Curves.easeInOut,
-                                    ),
-                                    behavior: HitTestBehavior.translucent,
-                                    child: AnimatedContainer(
-                                      duration:
-                                      const Duration(milliseconds: 250),
-                                      width: i == _currentPhoto ? 22 : 8,
-                                      height: 8,
-                                      margin: const EdgeInsets.symmetric(
-                                          horizontal: 3),
-                                      decoration: BoxDecoration(
-                                        color: i == _currentPhoto
-                                            ? accent
-                                            : Colors.white70,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
+                      background: SuperInterestHeroHeader(
+                        photos: photos,
+                        pageController: _pageCtrl,
+                        currentIndex: _currentPhoto,
+                        heroPrefix: heroPrefix,
+                        theme: theme,
+                        onDotTap: (i) => _pageCtrl.animateToPage(
+                          i,
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                        ),
+                        onOpen: (i) => _openFullscreenPhotos(photos, i, heroPrefix),
                       ),
                     ),
                   ),
 
-                  // CARD superpuesta con nombre + chips
+                  // CARD nombre + chips con acento temático
                   SliverToBoxAdapter(
                     child: Transform.translate(
                       offset: const Offset(0, -18),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.08),
-                                blurRadius: 18,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: Column(
+                        child: _whiteCard(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${d['nombre']}${d['edad'] != null ? ', ${d['edad']}' : ''}',
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: theme.primary.withOpacity(.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: theme.primary.withOpacity(.45)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(theme.badgeIcon, size: 18, color: theme.primary),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _labelForTheme(theme.kind),
+                                          style: TextStyle(
+                                            color: theme.primary,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 12),
                               if ((d['intereses'] as List).isNotEmpty)
@@ -484,7 +640,13 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                   spacing: 8,
                                   runSpacing: 10,
                                   children: (d['intereses'] as List<String>)
-                                      .map((e) => _interestChip(e))
+                                      .map(
+                                        (e) => _interestChip(
+                                      e,
+                                      c1: theme.primary,
+                                      c2: theme.primary.withOpacity(.7),
+                                    ),
+                                  )
                                       .toList(),
                                 ),
                             ],
@@ -499,77 +661,64 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        if ((d['biografia'] as String).trim().isNotEmpty)
-                          ...[
-                            const Text('Biografía',
-                                style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.06),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                (d['biografia'] as String).trim(),
-                                style: TextStyle(
-                                  height: 1.35,
-                                  color: Colors.black.withOpacity(0.85),
-                                  fontSize: 15,
-                                ),
+                        // Sección temática
+                        if (theme.kind == SuperInterest.music)
+                          MusicTopLists(
+                            topArtists: topArtists,
+                            topTracks: topTracks,
+                            favoriteGenre: favGenre,
+                            badgeColor: theme.primary,
+                            cardBg: Colors.white.withOpacity(.04),
+                            borderColor: Colors.white.withOpacity(.08),
+                          )
+                        else if (theme.kind == SuperInterest.football)
+                          _footballBanner(theme)
+                        else if (theme.kind == SuperInterest.gaming)
+                            _gamingBanner(theme),
+
+                        // BIO
+                        if ((d['biografia'] as String).trim().isNotEmpty) ...[
+                          const Text('Biografía',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 8),
+                          _whiteCard(
+                            Text(
+                              (d['biografia'] as String).trim(),
+                              style: TextStyle(
+                                height: 1.35,
+                                color: Colors.black.withOpacity(0.85),
+                                fontSize: 15,
                               ),
                             ),
-                            const SizedBox(height: 22),
-                          ],
+                          ),
+                          const SizedBox(height: 22),
+                        ],
 
+                        // PISO
                         const Text('Piso publicado',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w700)),
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                         const SizedBox(height: 10),
 
                         if (flat == null)
                           Text('No ha publicado ningún piso aún.',
-                              style: TextStyle(
-                                  color: Colors.black.withOpacity(0.6)))
+                              style: TextStyle(color: Colors.black.withOpacity(0.6)))
                         else
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.06),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: Row(
+                          _whiteCard(
+                            Row(
                               children: [
                                 Container(
                                   width: 46,
                                   height: 46,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0x33E3A62F),
+                                  decoration: BoxDecoration(
+                                    color: theme.primary.withOpacity(.18),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.home, color: accent),
+                                  child: Icon(Icons.home, color: theme.primary),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         (flat['direccion'] ?? '').toString(),
@@ -583,9 +732,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         '${flat['precio']} €/mes',
-                                        style: const TextStyle(
-                                            color: accent,
-                                            fontWeight: FontWeight.w700),
+                                        style: TextStyle(
+                                          color: theme.primary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -595,13 +745,13 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (_) => PisoDetailScreen(
-                                            pisoId: flat['id'].toString()),
+                                        builder: (_) =>
+                                            PisoDetailScreen(pisoId: flat['id'].toString()),
                                       ),
                                     );
                                   },
                                   child: const Text('Ver'),
-                                )
+                                ),
                               ],
                             ),
                           ),
@@ -611,83 +761,14 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 ],
               ),
 
-              // FOOTER CTA
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.96),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 12,
-                        offset: const Offset(0, -4),
-                      ),
-                    ],
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: isMe
-                              ? const _DisabledCTA(text: 'Este es tu perfil')
-                              : (accepted)
-                              ? _PrimaryCTA(
-                            text: 'Ir al chat',
-                            onTap: () async {
-                              final chatId =
-                              await ChatService.instance
-                                  .getOrCreateChat(widget.userId);
-                              if (!mounted) return;
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => ChatDetailScreen(
-                                    chatId: chatId,
-                                    companero: {
-                                      'id': widget.userId,
-                                      'nombre': d['nombre'],
-                                      'foto_perfil':
-                                      _firstAvatarUrlFrom(d),
-                                    },
-                                  ),
-                                ),
-                              );
-                            },
-                          )
-                              : ((pendingOut || _justRequested) || pendingIn)
-                              ? _DisabledCTA(
-                            text: pendingIn
-                                ? 'Solicitud pendiente'
-                                : 'Solicitud enviada',
-                          )
-                              : _PrimaryCTA(
-                            text: 'Enviar solicitud',
-                            onTap: () async {
-                              if (!await _tryConsumeSwipe()) {
-                                return;
-                              }
-                              await _req.sendRequest(widget.userId);
-                              if (!mounted) return;
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(
-                                const SnackBar(
-                                    content:
-                                    Text('Solicitud enviada')),
-                              );
-                              setState(
-                                      () => _justRequested = true);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              // FOOTER CTA usando helper
+              _footerCTA(
+                isMe: isMe,
+                accepted: accepted,
+                pendingIn: pendingIn,
+                pendingOut: pendingOut,
+                data: d,
+                themeColor: theme.primary,
               ),
             ],
           );
@@ -698,6 +779,19 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
         cambiarMenuInferior: _onBottomTap,
       ),
     );
+  }
+
+  String _labelForTheme(SuperInterest k) {
+    switch (k) {
+      case SuperInterest.music:
+        return 'Música';
+      case SuperInterest.football:
+        return 'Fútbol';
+      case SuperInterest.gaming:
+        return 'Gaming';
+      default:
+        return 'Top';
+    }
   }
 }
 
@@ -774,7 +868,6 @@ class _FullscreenGalleryState extends State<_FullscreenGallery> {
               );
             },
           ),
-          // Cerrar
           Positioned(
             right: 12,
             top: padTop + 10,
@@ -790,7 +883,6 @@ class _FullscreenGalleryState extends State<_FullscreenGallery> {
               ),
             ),
           ),
-          // Indicador
           if (widget.urls.length > 1)
             Positioned(
               bottom: 18 + MediaQuery.of(context).padding.bottom,
@@ -848,8 +940,7 @@ class _PrimaryCTA extends StatelessWidget {
         alignment: Alignment.center,
         child: Text(
           text,
-          style: const TextStyle(
-              color: Colors.white, fontWeight: FontWeight.w800),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
         ),
       ),
     );
@@ -872,8 +963,7 @@ class _DisabledCTA extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         text,
-        style: const TextStyle(
-            color: Colors.white, fontWeight: FontWeight.w700),
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
       ),
     );
   }

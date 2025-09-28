@@ -13,28 +13,45 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Launch icon en el cajón -->
+            <!-- Launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- Deep link EXACTO de Spotify -->
-            <intent-filter android:autoVerify="true">
+            <!-- Spotify callback con esquema exclusivo (NO se solapa con app_links ni Supabase) -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="chillroom" android:host="spotify-auth-callback"/>
+                <data
+                    android:scheme="crspot"
+                    android:host="spotify-auth-callback"
+                    android:pathPattern=".*"/>
             </intent-filter>
 
-            <!-- (opcional, ayuda en algunos OEMs) capturar cualquier host con el esquema -->
+
+            <!-- Fallback: cualquier host con el esquema chillroom -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="chillroom"/>
             </intent-filter>
+
+            <!-- Callback de Supabase -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="chillroom"
+                    android:host="login-callback"
+                    android:pathPattern=".*"/>
+            </intent-filter>
+
         </activity>
+
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

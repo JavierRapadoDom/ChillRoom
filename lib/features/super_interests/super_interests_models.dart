@@ -39,7 +39,11 @@ class FootballPref {
   final String? idol; // p.ej. 'Xavi Hernández'
   final List<String> tags; // p.ej. ['Liga Fantasy','Practico fútbol']
 
-  const FootballPref({this.team, this.idol, this.tags = const []});
+  const FootballPref({
+    this.team,
+    this.idol,
+    this.tags = const [],
+  });
 
   Map<String, dynamic> toJson() => {
     'team': team,
@@ -56,7 +60,11 @@ class FootballPref {
     );
   }
 
-  FootballPref copyWith({String? team, String? idol, List<String>? tags}) =>
+  FootballPref copyWith({
+    String? team,
+    String? idol,
+    List<String>? tags,
+  }) =>
       FootballPref(
         team: team ?? this.team,
         idol: idol ?? this.idol,
@@ -127,40 +135,61 @@ class MusicPref {
 /// --- Datos de VIDEOJUEGOS ---
 @immutable
 class GamingPref {
-  final Set<String> platforms; // {'PlayStation','Xbox','Switch','PC','Móvil'}
+  /// Plataformas seleccionadas: ['PC', 'PlayStation', ...]
+  final List<String> platforms;
+
+  /// Géneros preferidos: ['RPG','Shooter', ...]
+  final List<String> genres;
+
+  /// Juego favorito (texto libre)
   final String? favoriteGame;
-  final String? mostPlayed;
+
+  /// Gamertag / ID de juego (texto libre)
+  final String? gamerTag;
+
+  /// Hábitos/etiquetas: ['Competitivo','Casual', ...]
+  final List<String> tags;
 
   const GamingPref({
-    this.platforms = const {},
+    this.platforms = const [],
+    this.genres = const [],
     this.favoriteGame,
-    this.mostPlayed,
+    this.gamerTag,
+    this.tags = const [],
   });
 
   Map<String, dynamic> toJson() => {
-    'platforms': platforms.toList(),
+    'platforms': platforms,
+    'genres': genres,
     'favoriteGame': favoriteGame,
-    'mostPlayed': mostPlayed,
+    'gamerTag': gamerTag,
+    'tags': tags,
   };
 
   factory GamingPref.fromJson(Map<String, dynamic>? m) {
     m ??= const {};
     return GamingPref(
-      platforms: (m['platforms'] as List?)?.cast<String>().toSet() ?? {},
+      platforms: (m['platforms'] as List?)?.cast<String>() ?? const [],
+      genres: (m['genres'] as List?)?.cast<String>() ?? const [],
       favoriteGame: m['favoriteGame'] as String?,
-      mostPlayed: m['mostPlayed'] as String?,
+      gamerTag: m['gamerTag'] as String?,
+      tags: (m['tags'] as List?)?.cast<String>() ?? const [],
     );
   }
 
   GamingPref copyWith({
-    Set<String>? platforms,
+    List<String>? platforms,
+    List<String>? genres,
     String? favoriteGame,
-    String? mostPlayed,
+    String? gamerTag,
+    List<String>? tags,
   }) =>
       GamingPref(
         platforms: platforms ?? this.platforms,
+        genres: genres ?? this.genres,
         favoriteGame: favoriteGame ?? this.favoriteGame,
-        mostPlayed: mostPlayed ?? this.mostPlayed,
+        gamerTag: gamerTag ?? this.gamerTag,
+        tags: tags ?? this.tags,
       );
 }
 

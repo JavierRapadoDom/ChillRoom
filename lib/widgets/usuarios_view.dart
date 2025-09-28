@@ -7,6 +7,7 @@ import '../screens/user_details_screen.dart';
 import '../services/friend_request_service.dart';
 import '../services/swipe_service.dart';
 import '../services/friends_service.dart';
+import 'super_interest_user_card.dart';
 
 class UsuariosView extends StatefulWidget {
   final VoidCallback onSwipeConsumed;
@@ -148,7 +149,8 @@ class _UsuariosViewState extends State<UsuariosView> {
         estilo_vida,
         deportes,
         entretenimiento,
-        fotos
+        fotos,
+        super_interes
       )
     ''');
 
@@ -170,7 +172,7 @@ class _UsuariosViewState extends State<UsuariosView> {
     if (minAge > _edadMin) query = query.gte('edad', minAge);
     if (maxAge < _edadMax) query = query.lte('edad', maxAge);
     if (_gender != null && _gender!.trim().isNotEmpty) {
-      query = query.eq('genero', _gender!); // <-- FIX: usar no-nulo
+      query = query.eq('genero', _gender!);
     }
 
     final rows = await query;
@@ -200,6 +202,7 @@ class _UsuariosViewState extends State<UsuariosView> {
           ...List<String>.from(p['deportes'] ?? []),
           ...List<String>.from(p['entretenimiento'] ?? []),
         ],
+        'super_interest': (p['super_interes'] as String?) ?? 'none', // <-- clave para tema
       };
     }).toList();
 
@@ -230,8 +233,9 @@ class _UsuariosViewState extends State<UsuariosView> {
     if (_interestSel.isNotEmpty) {
       final sel = _interestSel.map((s) => s.toLowerCase().trim()).toSet();
       out = out.where((u) {
-        final ints =
-        (u['intereses'] as List<String>).map((e) => e.toLowerCase().trim()).toSet();
+        final ints = (u['intereses'] as List<String>)
+            .map((e) => e.toLowerCase().trim())
+            .toSet();
         if (_matchAllInterests) {
           for (final s in sel) {
             if (!ints.contains(s)) return false;
@@ -254,7 +258,8 @@ class _UsuariosViewState extends State<UsuariosView> {
 
   int _activeFiltersCount() {
     int n = 0;
-    final fullRange = _ageRange.start.round() == _edadMin && _ageRange.end.round() == _edadMax;
+    final fullRange =
+        _ageRange.start.round() == _edadMin && _ageRange.end.round() == _edadMax;
     if (!fullRange) n++;
     if (_gender != null && _gender!.trim().isNotEmpty) n++;
     if (_interestSel.isNotEmpty) n++;
@@ -263,14 +268,14 @@ class _UsuariosViewState extends State<UsuariosView> {
 
   void _clearFilters() {
     setState(() {
-      _ageRange = RangeValues(_edadMin.toDouble(), _edadMax.toDouble()); // <- full rango
+      _ageRange =
+          RangeValues(_edadMin.toDouble(), _edadMax.toDouble()); // <- full rango
       _gender = null;
       _interestSel.clear();
       _matchAllInterests = false;
     });
     _refreshUsers();
   }
-
 
   // ========== ACCIONES SWIPE ==========
   Future<void> _goToNext() async {
@@ -300,9 +305,12 @@ class _UsuariosViewState extends State<UsuariosView> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Sin acciones'),
-        content: const Text('Te has quedado sin acciones, ve un anuncio o compra más'),
+        content: const Text(
+            'Te has quedado sin acciones, ve un anuncio o compra más'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar')),
         ],
       ),
     );
@@ -327,7 +335,9 @@ class _UsuariosViewState extends State<UsuariosView> {
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Solicitud de chat enviada'), duration: Duration(seconds: 2)),
+      const SnackBar(
+          content: Text('Solicitud de chat enviada'),
+          duration: Duration(seconds: 2)),
     );
     _removeFromLists(likeId);
   }
@@ -347,16 +357,23 @@ class _UsuariosViewState extends State<UsuariosView> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Restablecer usuarios'),
-        content: const Text('¿Seguro que quieres volver a ver todos los usuarios rechazados?'),
+        content: const Text(
+            '¿Seguro que quieres volver a ver todos los usuarios rechazados?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restablecer')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Restablecer')),
         ],
       ),
     );
     if (confirmed == true) {
       final me = _sb.auth.currentUser!.id;
-      await _sb.from('usuarios').update({'usuarios_rechazados': <String>[]}).eq('id', me);
+      await _sb
+          .from('usuarios')
+          .update({'usuarios_rechazados': <String>[]}).eq('id', me);
       if (mounted) {
         await _refreshUsers();
       }
@@ -384,14 +401,17 @@ class _UsuariosViewState extends State<UsuariosView> {
           child: StatefulBuilder(
             builder: (ctx, setModal) {
               final interestsList = _interestCatalog
-                  .where((it) => it.toLowerCase().contains(search.toLowerCase()))
+                  .where((it) =>
+                  it.toLowerCase().contains(search.toLowerCase()))
                   .toList()
                 ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
               return Container(
                 color: Colors.white.withOpacity(0.85),
                 padding: EdgeInsets.only(
-                  left: 16, right: 16, top: 8,
+                  left: 16,
+                  right: 16,
+                  top: 8,
                   bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
                 ),
                 child: SingleChildScrollView(
@@ -400,7 +420,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                     children: [
                       Center(
                         child: Container(
-                          width: 44, height: 5,
+                          width: 44,
+                          height: 5,
                           margin: const EdgeInsets.only(bottom: 8),
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.12),
@@ -410,12 +431,16 @@ class _UsuariosViewState extends State<UsuariosView> {
                       ),
                       Row(
                         children: [
-                          const Text('Filtros', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                          const Text('Filtros',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900)),
                           const Spacer(),
                           TextButton.icon(
                             onPressed: () {
                               setState(() {
-                                _ageRange = RangeValues(_edadMin.toDouble(), _edadMax.toDouble());
+                                _ageRange = RangeValues(
+                                    _edadMin.toDouble(), _edadMax.toDouble());
                                 _gender = null;
                                 _interestSel.clear();
                                 _matchAllInterests = false;
@@ -431,7 +456,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                       const SizedBox(height: 6),
 
                       // Edad
-                      const Text('Edad', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const Text('Edad',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -446,8 +472,10 @@ class _UsuariosViewState extends State<UsuariosView> {
                           thumbColor: accent,
                           overlayColor: accent.withOpacity(.15),
                           trackHeight: 6,
-                          rangeThumbShape: const RoundRangeSliderThumbShape(enabledThumbRadius: 10),
-                          rangeTrackShape: const RoundedRectRangeSliderTrackShape(),
+                          rangeThumbShape: const RoundRangeSliderThumbShape(
+                              enabledThumbRadius: 10),
+                          rangeTrackShape:
+                          const RoundedRectRangeSliderTrackShape(),
                         ),
                         child: RangeSlider(
                           min: _edadMin.toDouble(),
@@ -460,7 +488,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                       const SizedBox(height: 10),
 
                       // Género
-                      const Text('Género', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const Text('Género',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
@@ -468,24 +497,31 @@ class _UsuariosViewState extends State<UsuariosView> {
                         children: [
                           ChoiceChip(
                             label: const Text('Cualquiera'),
-                            selected: (gender?.isEmpty ?? true), // <-- FIX
+                            selected: (gender?.isEmpty ?? true),
                             onSelected: (_) => setModal(() => gender = null),
                             selectedColor: accent,
                             labelStyle: TextStyle(
-                              color: (gender?.isEmpty ?? true) ? Colors.white : Colors.black87,
+                              color:
+                              (gender?.isEmpty ?? true)
+                                  ? Colors.white
+                                  : Colors.black87,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          ..._genderOptions.map((g) => ChoiceChip(
-                            label: Text(g),
-                            selected: gender == g,
-                            onSelected: (_) => setModal(() => gender = g),
-                            selectedColor: accent,
-                            labelStyle: TextStyle(
-                              color: gender == g ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.w700,
+                          ..._genderOptions.map(
+                                (g) => ChoiceChip(
+                              label: Text(g),
+                              selected: gender == g,
+                              onSelected: (_) => setModal(() => gender = g),
+                              selectedColor: accent,
+                              labelStyle: TextStyle(
+                                color: gender == g
+                                    ? Colors.white
+                                    : Colors.black87,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          )),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 14),
@@ -493,7 +529,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                       // Intereses
                       Row(
                         children: [
-                          const Text('Intereses', style: TextStyle(fontWeight: FontWeight.w700)),
+                          const Text('Intereses',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
                           const Spacer(),
                           TextButton(
                             onPressed: () => setModal(() => selected.clear()),
@@ -514,7 +551,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                       if (interestsList.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Text('No hay sugerencias (se generan automáticamente).'),
+                          child: Text(
+                              'No hay sugerencias (se generan automáticamente).'),
                         )
                       else
                         Wrap(
@@ -553,7 +591,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                           ChoiceChip(
                             label: const Text('Cualquiera'),
                             selected: !matchAll,
-                            onSelected: (_) => setModal(() => matchAll = false),
+                            onSelected: (_) =>
+                                setModal(() => matchAll = false),
                             selectedColor: accent,
                             labelStyle: TextStyle(
                               color: !matchAll ? Colors.white : Colors.black87,
@@ -564,7 +603,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                           ChoiceChip(
                             label: const Text('Todas'),
                             selected: matchAll,
-                            onSelected: (_) => setModal(() => matchAll = true),
+                            onSelected: (_) =>
+                                setModal(() => matchAll = true),
                             selectedColor: accent,
                             labelStyle: TextStyle(
                               color: matchAll ? Colors.white : Colors.black87,
@@ -581,7 +621,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                             child: OutlinedButton(
                               onPressed: () {
                                 setState(() {
-                                  _ageRange = RangeValues(_edadMin.toDouble(), _edadMax.toDouble());
+                                  _ageRange = RangeValues(
+                                      _edadMin.toDouble(), _edadMax.toDouble());
                                   _gender = null;
                                   _interestSel.clear();
                                   _matchAllInterests = false;
@@ -599,7 +640,8 @@ class _UsuariosViewState extends State<UsuariosView> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: accent,
                                 foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
                                 elevation: 2,
                               ),
                               onPressed: () {
@@ -673,13 +715,22 @@ class _UsuariosViewState extends State<UsuariosView> {
         s.contains('vegan') ||
         s.contains('vegano') ||
         s.contains('veg')) return Icons.fastfood;
-    if (s.contains('libro') || s.contains('leer') || s.contains('lectura') || s.contains('literatura')) {
+    if (s.contains('libro') ||
+        s.contains('leer') ||
+        s.contains('lectura') ||
+        s.contains('literatura')) {
       return Icons.book;
     }
-    if (s.contains('viaj') || s.contains('turismo') || s.contains('aventura') || s.contains('viajes')) {
+    if (s.contains('viaj') ||
+        s.contains('turismo') ||
+        s.contains('aventura') ||
+        s.contains('viajes')) {
       return Icons.travel_explore;
     }
-    if (s.contains('arte') || s.contains('dibujo') || s.contains('pintura') || s.contains('diseñ')) {
+    if (s.contains('arte') ||
+        s.contains('dibujo') ||
+        s.contains('pintura') ||
+        s.contains('diseñ')) {
       return Icons.brush;
     }
     if (s.contains('videojuego') ||
@@ -688,7 +739,10 @@ class _UsuariosViewState extends State<UsuariosView> {
         s.contains('tecnolog') ||
         s.contains('ordenador') ||
         s.contains('pc')) return Icons.videogame_asset;
-    if (s.contains('natur') || s.contains('sender') || s.contains('montaña') || s.contains('excurs')) {
+    if (s.contains('natur') ||
+        s.contains('sender') ||
+        s.contains('montaña') ||
+        s.contains('excurs')) {
       return Icons.nature;
     }
     return Icons.label;
@@ -712,7 +766,8 @@ class _UsuariosViewState extends State<UsuariosView> {
             label: const Text('Ajustar filtros'),
           ),
           const SizedBox(height: 8),
-          TextButton(onPressed: _clearFilters, child: const Text('Limpiar filtros')),
+          TextButton(
+              onPressed: _clearFilters, child: const Text('Limpiar filtros')),
         ],
       );
     }
@@ -729,7 +784,10 @@ class _UsuariosViewState extends State<UsuariosView> {
               const Expanded(
                 child: Text(
                   'Usuarios recomendados',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5),
                 ),
               ),
               Stack(
@@ -738,29 +796,40 @@ class _UsuariosViewState extends State<UsuariosView> {
                   ElevatedButton.icon(
                     icon: const Icon(Icons.filter_alt),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: activeFilters > 0 ? accent : Colors.black87,
+                      backgroundColor:
+                      activeFilters > 0 ? accent : Colors.black87,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
                       elevation: activeFilters > 0 ? 3 : 1,
                     ),
                     onPressed: _openFiltersSheet,
-                    label: Text(activeFilters > 0 ? 'Filtros ($activeFilters)' : 'Filtros'),
+                    label: Text(activeFilters > 0
+                        ? 'Filtros ($activeFilters)'
+                        : 'Filtros'),
                   ),
                   if (activeFilters > 0)
                     Positioned(
                       right: -6,
                       top: -6,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.redAccent,
                           borderRadius: BorderRadius.circular(999),
-                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black26, blurRadius: 4)
+                          ],
                         ),
                         child: Text(
                           '$activeFilters',
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
@@ -777,11 +846,15 @@ class _UsuariosViewState extends State<UsuariosView> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                if (!(_ageRange.start.round() == _edadMin && _ageRange.end.round() == _edadMax))
-                  _miniChip('Edad: ${_ageRange.start.round()}-${_ageRange.end.round()}'),
-                if (_gender != null && _gender!.trim().isNotEmpty) _miniChip('Género: $_gender'),
+                if (!(_ageRange.start.round() == _edadMin &&
+                    _ageRange.end.round() == _edadMax))
+                  _miniChip(
+                      'Edad: ${_ageRange.start.round()}-${_ageRange.end.round()}'),
+                if (_gender != null && _gender!.trim().isNotEmpty)
+                  _miniChip('Género: $_gender'),
                 if (_interestSel.isNotEmpty)
-                  _miniChip('Intereses: ${_interestSel.length}${_matchAllInterests ? " (todas)" : ""}'),
+                  _miniChip(
+                      'Intereses: ${_interestSel.length}${_matchAllInterests ? " (todas)" : ""}'),
                 if (activeFilters > 0) ...[
                   const SizedBox(width: 8),
                   TextButton.icon(
@@ -795,7 +868,7 @@ class _UsuariosViewState extends State<UsuariosView> {
           ),
         ),
 
-        // PageView
+        // PageView (parallax + scale)
         Expanded(
           child: PageView.builder(
             controller: _pageCtrl,
@@ -804,163 +877,72 @@ class _UsuariosViewState extends State<UsuariosView> {
             itemBuilder: (ctx, idx) {
               final user = _visibleUsers[idx];
 
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: EdgeInsets.symmetric(
-                  horizontal: idx == _currentIdx ? 0 : 16,
-                  vertical: idx == _currentIdx ? 0 : 40,
-                ),
-                child: Dismissible(
-                  key: ValueKey(user['id']),
-                  direction: DismissDirection.horizontal,
-                  resizeDuration: null,
-                  movementDuration: const Duration(milliseconds: 180),
-                  dismissThresholds: const {
-                    DismissDirection.startToEnd: 0.27,
-                    DismissDirection.endToStart: 0.27,
-                  },
-                  background: const _SwipeBg(
-                    align: Alignment.centerLeft,
-                    icon: Icons.check,
-                    color: Colors.green,
-                    label: 'LIKE',
-                  ),
-                  secondaryBackground: const _SwipeBg(
-                    align: Alignment.centerRight,
-                    icon: Icons.close,
-                    color: Colors.red,
-                    label: 'NOPE',
-                  ),
-                  confirmDismiss: (dir) async {
-                    if (dir == DismissDirection.startToEnd) {
-                      await _likeCurrent();
-                      await _goToNext();
-                      return false;
-                    } else if (dir == DismissDirection.endToStart) {
-                      if (!await _tryConsumeSwipe()) return false;
-                      await _rejectCurrent();
-                      await _goToNext();
-                      return false;
-                    }
-                    return false;
-                  },
-                  child: GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => UserDetailsScreen(userId: user['id'] as String),
+              return AnimatedBuilder(
+                animation: _pageCtrl,
+                builder: (context, _) {
+                  double page = _currentIdx.toDouble();
+                  if (_pageCtrl.hasClients &&
+                      _pageCtrl.position.haveDimensions) {
+                    page = _pageCtrl.page ?? page;
+                  }
+                  final delta = idx - page; // negativo izq · positivo dcha
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    margin: EdgeInsets.symmetric(
+                      horizontal: idx == _currentIdx ? 0 : 16,
+                      vertical: idx == _currentIdx ? 0 : 40,
+                    ),
+                    child: Dismissible(
+                      key: ValueKey(user['id']),
+                      direction: DismissDirection.horizontal,
+                      resizeDuration: null,
+                      movementDuration: const Duration(milliseconds: 180),
+                      dismissThresholds: const {
+                        DismissDirection.startToEnd: 0.27,
+                        DismissDirection.endToStart: 0.27,
+                      },
+                      background: const _SwipeBg(
+                        align: Alignment.centerLeft,
+                        icon: Icons.check,
+                        color: Colors.green,
+                        label: 'LIKE',
+                      ),
+                      secondaryBackground: const _SwipeBg(
+                        align: Alignment.centerRight,
+                        icon: Icons.close,
+                        color: Colors.red,
+                        label: 'NOPE',
+                      ),
+                      confirmDismiss: (dir) async {
+                        if (dir == DismissDirection.startToEnd) {
+                          await _likeCurrent();
+                          await _goToNext();
+                          return false;
+                        } else if (dir == DismissDirection.endToStart) {
+                          if (!await _tryConsumeSwipe()) return false;
+                          await _rejectCurrent();
+                          await _goToNext();
+                          return false;
+                        }
+                        return false;
+                      },
+                      child: GestureDetector(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => UserDetailsScreen(
+                                userId: user['id'] as String),
+                          ),
+                        ),
+                        child: SuperInterestUserCard(
+                          user: user,
+                          pageDelta: delta, // <-- micro-animación
+                        ),
                       ),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(28),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          user['avatar'] != null
-                              ? Image.network(user['avatar']!, fit: BoxFit.cover)
-                              : Container(color: Colors.grey[300]),
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [
-                                  Color(0xAA000000),
-                                  Color(0x44000000),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(18),
-                              decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                                color: Colors.black.withOpacity(0.35),
-                                backgroundBlendMode: BlendMode.overlay,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '${user['nombre']}, ${user['edad'] ?? ''}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if ((user['biografia'] as String).isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 6, bottom: 10),
-                                      child: Text(
-                                        user['biografia'],
-                                        maxLines: 3,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: Colors.white.withOpacity(0.85),
-                                          fontSize: 14,
-                                          height: 1.3,
-                                        ),
-                                      ),
-                                    ),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: (user['intereses'] as List<String>)
-                                        .take(8)
-                                        .map((interest) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(18),
-                                          gradient: LinearGradient(
-                                            colors: [
-                                              accent.withOpacity(0.95),
-                                              accent.withOpacity(0.7),
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: accent.withOpacity(0.35),
-                                              blurRadius: 6,
-                                              offset: const Offset(0, 3),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(_iconForInterest(interest), color: Colors.white, size: 16),
-                                            const SizedBox(width: 8),
-                                            Flexible(
-                                              child: Text(
-                                                interest,
-                                                style: const TextStyle(color: Colors.white, fontSize: 13),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+                  );
+                },
               );
             },
           ),
@@ -1082,9 +1064,17 @@ class _SwipeBg extends StatelessWidget {
           if (align == Alignment.centerLeft) ...[
             Icon(icon, color: color, size: 28),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w800)),
+            Text(label,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800)),
           ] else ...[
-            Text(label, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w800)),
+            Text(label,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800)),
             const SizedBox(width: 8),
             Icon(icon, color: color, size: 28),
           ],
