@@ -34,6 +34,9 @@ class _UsuariosViewState extends State<UsuariosView> {
   late PageController _pageCtrl;
   int _currentIdx = 0;
 
+  // Evita reentradas mientras se está cerrando una tarjeta
+  bool _isDismissing = false;
+
   // ---- Filtros
   static const int _edadMin = 16;
   static const int _edadMax = 120;
@@ -56,7 +59,6 @@ class _UsuariosViewState extends State<UsuariosView> {
   @override
   void initState() {
     super.initState();
-    widget.onSwipeConsumed();
     _pageCtrl = PageController(viewportFraction: 0.9);
     _refreshUsers();
   }
@@ -202,7 +204,7 @@ class _UsuariosViewState extends State<UsuariosView> {
           ...List<String>.from(p['deportes'] ?? []),
           ...List<String>.from(p['entretenimiento'] ?? []),
         ],
-        'super_interest': (p['super_interes'] as String?) ?? 'none', // <-- clave para tema
+        'super_interest': (p['super_interes'] as String?) ?? 'none',
       };
     }).toList();
 
@@ -269,7 +271,7 @@ class _UsuariosViewState extends State<UsuariosView> {
   void _clearFilters() {
     setState(() {
       _ageRange =
-          RangeValues(_edadMin.toDouble(), _edadMax.toDouble()); // <- full rango
+          RangeValues(_edadMin.toDouble(), _edadMax.toDouble());
       _gender = null;
       _interestSel.clear();
       _matchAllInterests = false;
@@ -277,23 +279,7 @@ class _UsuariosViewState extends State<UsuariosView> {
     _refreshUsers();
   }
 
-  // ========== ACCIONES SWIPE ==========
-  Future<void> _goToNext() async {
-    if (_currentIdx < _visibleUsers.length - 1) {
-      _currentIdx++;
-      await _pageCtrl.animateToPage(
-        _currentIdx,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-      if (mounted) setState(() {});
-    } else {
-      if (mounted) {
-        await _refreshUsers();
-      }
-    }
-  }
-
+  // ========== SWIPE HELPERS (por ID) ==========
   Future<bool> _tryConsumeSwipe() async {
     final remaining = await _swipeSvc.getRemaining();
     if (remaining > 0) {
@@ -317,29 +303,22 @@ class _UsuariosViewState extends State<UsuariosView> {
     return false;
   }
 
-  Future<void> _rejectCurrent() async {
-    if (_visibleUsers.isEmpty) return;
-    final rejectId = _visibleUsers[_currentIdx]['id'] as String;
-    await _appendToUserArray('usuarios_rechazados', rejectId);
-    widget.onSwipeConsumed();
-    _removeFromLists(rejectId);
+  Future<void> _rejectById(String userId) async {
+    // En tu lógica, NOPE también consume
+    if (!await _tryConsumeSwipe()) return;
+    await _appendToUserArray('usuarios_rechazados', userId);
+    _removeFromLists(userId);
   }
 
-  Future<void> _likeCurrent() async {
-    if (_visibleUsers.isEmpty) return;
-    final likeId = _visibleUsers[_currentIdx]['id'] as String;
-
+  Future<void> _likeById(String userId) async {
     if (!await _tryConsumeSwipe()) return;
-    await _reqSvc.sendRequest(likeId);
-    await _appendToUserArray('usuarios_solicitados', likeId);
-
+    await _reqSvc.sendRequest(userId);
+    await _appendToUserArray('usuarios_solicitados', userId);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('Solicitud de chat enviada'),
-          duration: Duration(seconds: 2)),
+      const SnackBar(content: Text('Solicitud de chat enviada'), duration: Duration(seconds: 2)),
     );
-    _removeFromLists(likeId);
+    _removeFromLists(userId);
   }
 
   void _removeFromLists(String id) {
@@ -914,19 +893,42 @@ class _UsuariosViewState extends State<UsuariosView> {
                         color: Colors.red,
                         label: 'NOPE',
                       ),
+
+                      // Solo valida si se puede hacer el swipe (NO consume aún)
                       confirmDismiss: (dir) async {
-                        if (dir == DismissDirection.startToEnd) {
-                          await _likeCurrent();
-                          await _goToNext();
-                          return false;
-                        } else if (dir == DismissDirection.endToStart) {
-                          if (!await _tryConsumeSwipe()) return false;
-                          await _rejectCurrent();
-                          await _goToNext();
-                          return false;
-                        }
-                        return false;
+                        if (_isDismissing) return false;
+                        final remaining = await _swipeSvc.getRemaining();
+                        return remaining > 0;
                       },
+
+                      // Ejecuta la acción por ID y elimina del data source
+                      onDismissed: (dir) async {
+                        if (_isDismissing) return;
+                        _isDismissing = true;
+
+                        final id = user['id'] as String;
+
+                        try {
+                          if (dir == DismissDirection.startToEnd) {
+                            // LIKE
+                            await _likeById(id);
+                          } else if (dir == DismissDirection.endToStart) {
+                            // NOPE
+                            await _rejectById(id);
+                          }
+
+                          // Clamp del índice y rebuild
+                          if (_currentIdx >= _visibleUsers.length &&
+                              _visibleUsers.isNotEmpty) {
+                            setState(() => _currentIdx = _visibleUsers.length - 1);
+                          } else {
+                            setState(() {});
+                          }
+                        } finally {
+                          _isDismissing = false;
+                        }
+                      },
+
                       child: GestureDetector(
                         onTap: () => Navigator.push(
                           context,
@@ -958,9 +960,16 @@ class _UsuariosViewState extends State<UsuariosView> {
               icon: Icons.close,
               color: Colors.red,
               onTap: () async {
-                if (!await _tryConsumeSwipe()) return;
-                await _rejectCurrent();
-                _goToNext();
+                if (_visibleUsers.isEmpty) return;
+                final id = _visibleUsers[_currentIdx]['id'] as String;
+                await _rejectById(id); // NOPE consume
+                // Ajuste de índice y rebuild
+                if (_currentIdx >= _visibleUsers.length &&
+                    _visibleUsers.isNotEmpty) {
+                  setState(() => _currentIdx = _visibleUsers.length - 1);
+                } else {
+                  setState(() {});
+                }
               },
             ),
             const SizedBox(width: 40),
@@ -974,8 +983,15 @@ class _UsuariosViewState extends State<UsuariosView> {
               icon: Icons.check,
               color: accent,
               onTap: () async {
-                await _likeCurrent();
-                _goToNext();
+                if (_visibleUsers.isEmpty) return;
+                final id = _visibleUsers[_currentIdx]['id'] as String;
+                await _likeById(id);
+                if (_currentIdx >= _visibleUsers.length &&
+                    _visibleUsers.isNotEmpty) {
+                  setState(() => _currentIdx = _visibleUsers.length - 1);
+                } else {
+                  setState(() {});
+                }
               },
             ),
           ],

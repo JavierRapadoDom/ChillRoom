@@ -28,6 +28,9 @@ class _FootballSuperInterestScreenState
   final Set<String> _tags = {};
   bool _saving = false;
 
+  String? _position; // 'Portero' | 'Defensa' | 'Centrocampista' | 'Delantero'
+  bool _plays5 = false;
+
   // Animación “latido” sobre el equipo seleccionado
   late final AnimationController _pulseCtrl =
   AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
@@ -117,12 +120,27 @@ class _FootballSuperInterestScreenState
     }
     setState(() => _saving = true);
     try {
+      final tags = Set<String>.from(_tags);
+
+// 1) Quita cualquier posición previa y añade la actual si existe
+      tags.removeWhere((t) => t.toLowerCase().startsWith('posición:'));
+      if (_position != null && _position!.isNotEmpty) {
+        tags.add('Posición: $_position');
+      }
+
+// 2) Normaliza Juego 5/7
+      if (_plays5) {
+        tags.add('Juego 5/7');
+      } else {
+        tags.remove('Juego 5/7');
+      }
+
       final data = SuperInterestData(
         type: SuperInterestType.football,
         football: FootballPref(
           team: _selectedTeam,
           idol: _idolCtrl.text.trim().isEmpty ? null : _idolCtrl.text.trim(),
-          tags: _tags.toList(),
+          tags: tags.toList(),
         ),
       );
       await SuperInterestsService.instance.save(data);
@@ -205,6 +223,34 @@ class _FootballSuperInterestScreenState
                       ),
                       const SizedBox(height: 14),
                       _QuickInfoBadge(selectedTeam: _selectedTeam),
+                      const SizedBox(height: 14),
+
+                      const _SectionTitle(icon: Icons.sports_martial_arts, text: 'Tu posición'),
+                      const SizedBox(height: 10),
+                      _PositionChips(
+                        selected: _position,
+                        onSelect: (pos) => setState(() => _position = pos),
+                      ),
+
+                      const SizedBox(height: 14),
+                      const _SectionTitle(icon: Icons.calendar_month_rounded, text: 'Estilo de juego'),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          FilterChip(
+                            label: const Text('Juego 5/7'),
+                            selected: _plays5,
+                            onSelected: (v) => setState(() => _plays5 = v),
+                            selectedColor: _FootballSuperInterestScreenState.accent.withOpacity(.25),
+                            checkmarkColor: Colors.black87,
+                            backgroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 110), // espacio para footer
                     ],
                   ),
                 ),
@@ -849,6 +895,33 @@ class _FloatingFooter extends StatelessWidget {
     );
   }
 }
+
+class _PositionChips extends StatelessWidget {
+  final String? selected;
+  final void Function(String? pos) onSelect;
+  const _PositionChips({required this.selected, required this.onSelect});
+
+  static const _opts = <String>['Portero', 'Defensa', 'Centrocampista', 'Delantero'];
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8, runSpacing: 8,
+      children: _opts.map((o) {
+        final sel = selected == o;
+        return ChoiceChip(
+          label: Text(o),
+          selected: sel,
+          onSelected: (v) => onSelect(v ? o : null),
+          selectedColor: _FootballSuperInterestScreenState.accent.withOpacity(.25),
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        );
+      }).toList(),
+    );
+  }
+}
+
 
 class _SuccessSheet extends StatelessWidget {
   const _SuccessSheet();

@@ -1,4 +1,7 @@
 // lib/screens/home_screen.dart
+import 'dart:math';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,10 +11,9 @@ import '../services/swipe_service.dart';
 import '../widgets/app_menu.dart';
 import '../widgets/usuarios_view.dart';
 import '../widgets/pisos_view.dart';
-// import 'favorites_screen.dart'; // <- Ya no se usa en la bottom bar
 import 'messages_screen.dart';
 import 'profile_screen.dart';
-import 'community_screen.dart'; // <-- NUEVO import
+import 'community_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,13 +30,20 @@ class _HomeScreenState extends State<HomeScreen>
   int _seleccionMenuInferior = 0;
   int _swipes = 0;
 
+  // ---------- Interstitial control ----------
+  int _swipeCountSinceLastInterstitial = 0;
+  Timer? _interstitialTimer;
+  DateTime? _lastInterstitialShownAt;
+  bool _interstitialInFlight = false;
+  static const Duration _interstitialCooldown = Duration(minutes: 2);
+
   late AnimationController _controller;
 
   final List<List<Color>> _gradients = const [
-    [Color(0xFFE3A62F), Color(0xFFD69412)], // dorado vivo → dorado oscuro
-    [Color(0xFFE3A62F), Color(0xFFF5F5F5)], // dorado → gris suave
-    [Color(0xFFF5F5F5), Colors.white],      // gris claro → blanco
-    [Color(0xFFD69412), Color(0xFFE3A62F)], // dorado oscuro → dorado vivo
+    [Color(0xFFE3A62F), Color(0xFFD69412)],
+    [Color(0xFFE3A62F), Color(0xFFF5F5F5)],
+    [Color(0xFFF5F5F5), Colors.white],
+    [Color(0xFFD69412), Color(0xFFE3A62F)],
   ];
 
   // -------- Monetización (anuncios recompensados) --------
@@ -61,26 +70,79 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _loadSwipes();
 
-    RewardAdsService.instance.preload();
-
+    // Animación de fondo
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
     )..repeat();
+
+    // Programa el primer interstitial por tiempo aleatorio
+    _scheduleNextInterstitialTick();
   }
 
   @override
   void dispose() {
+    _interstitialTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
+  // ----- Swipes -----
   Future<void> _loadSwipes() async {
     final count = await SwipeService.instance.getRemaining();
     if (!mounted) return;
     setState(() => _swipes = count);
   }
 
+  // Se lo pasamos a UsuariosView para que lo llame cada vez que consume un swipe
+  Future<void> _onSwipeConsumed() async {
+    // refresca contador visual
+    await _loadSwipes();
+
+    // ++ contador para interstitial cada 5
+    _swipeCountSinceLastInterstitial++;
+    if (_swipeCountSinceLastInterstitial >= 5) {
+      _swipeCountSinceLastInterstitial = 0;
+      _maybeShowInterstitial(reason: 'every5');
+    }
+  }
+
+  // ----- Interstitial timers & cooldown -----
+  void _scheduleNextInterstitialTick() {
+    _interstitialTimer?.cancel();
+
+    // Random entre 15 y 20 min (inclusive)
+    final minutes = 15 + Random().nextInt(6); // 15..20
+    _interstitialTimer = Timer(Duration(minutes: minutes), () async {
+      _maybeShowInterstitial(reason: 'timer');
+      // Reprograma siguiente tick, pase lo que pase
+      _scheduleNextInterstitialTick();
+    });
+  }
+
+  Future<void> _maybeShowInterstitial({required String reason}) async {
+    if (!mounted) return;
+
+    // Cooldown para evitar spam si coinciden timer y cada5
+    final now = DateTime.now();
+    if (_interstitialInFlight) return;
+    if (_lastInterstitialShownAt != null &&
+        now.difference(_lastInterstitialShownAt!) < _interstitialCooldown) {
+      return;
+    }
+
+    _interstitialInFlight = true;
+    try {
+      final opened = await RewardAdsService.instance.showInterstitial();
+      if (opened) {
+        _lastInterstitialShownAt = DateTime.now();
+      }
+    } finally {
+      _interstitialInFlight = false;
+    }
+  }
+
+  // ----- Navegación -----
   void _cambiarVista(int index) {
     setState(() => _seleccionVista = index);
   }
@@ -92,9 +154,9 @@ class _HomeScreenState extends State<HomeScreen>
     late Widget dest;
     switch (index) {
       case 0:
-        return; // Ya estamos en Inicio
+        return; // Inicio
       case 1:
-        dest = const CommunityScreen(); // <-- ahora abre Comunidad real
+        dest = const CommunityScreen();
         break;
       case 2:
         dest = const MessagesScreen();
@@ -108,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
   }
 
+  // ----- Sheet de swipes (rewarded) -----
   Future<void> _openSwipesSheet() async {
     final adsLeft = await _getRewardAdsLeftToday();
 
@@ -127,15 +190,17 @@ class _HomeScreenState extends State<HomeScreen>
               if (left <= 0) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Límite diario de anuncios alcanzado')),
+                    const SnackBar(
+                        content: Text('Límite diario de anuncios alcanzado')),
                   );
                 }
                 return;
               }
+              // Usa tu servicio Appodeal (método correcto)
               final ok = await RewardAdsService.instance.showRewardedAd();
               if (ok) {
                 await _incRewardAdsToday();
-                await SwipeService.instance.add(1);  // +1 swipe
+                await SwipeService.instance.add(1); // +1 swipe
                 await _loadSwipes();
                 if (mounted) {
                   setModalState(() {});
@@ -146,13 +211,15 @@ class _HomeScreenState extends State<HomeScreen>
               } else {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('No se pudo reproducir el anuncio')),
+                    const SnackBar(
+                        content: Text('No se pudo reproducir el anuncio')),
                   );
                 }
               }
             }
 
-            Future<void> _buyPack(String productId, int swipes, String precio) async {
+            Future<void> _buyPack(
+                String productId, int swipes, String precio) async {
               final ok = await PurchaseService.instance.buy(productId);
               if (ok) {
                 await SwipeService.instance.add(swipes);
@@ -166,7 +233,8 @@ class _HomeScreenState extends State<HomeScreen>
               } else {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Pago cancelado o fallido ($precio)')),
+                    SnackBar(
+                        content: Text('Pago cancelado o fallido ($precio)')),
                   );
                 }
               }
@@ -185,19 +253,23 @@ class _HomeScreenState extends State<HomeScreen>
                   height: 44,
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(colors: [Color(0xFFE3A62F), Color(0xFFD69412)]),
+                    gradient: LinearGradient(
+                        colors: [Color(0xFFE3A62F), Color(0xFFD69412)]),
                   ),
                   child: Icon(icon, color: Colors.white),
                 ),
-                title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                title:
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
                 subtitle: Text(subtitle),
                 trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     color: Colors.black.withOpacity(0.05),
                   ),
-                  child: Text(trailing, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  child: Text(trailing,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
                 onTap: onTap,
               );
@@ -218,9 +290,12 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text('Conseguir swipes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  const Text('Conseguir swipes',
+                      style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
-                  Text('Tienes $_swipes', style: TextStyle(color: Colors.black.withOpacity(0.6))),
+                  Text('Tienes $_swipes',
+                      style: TextStyle(color: Colors.black.withOpacity(0.6))),
                   const SizedBox(height: 10),
 
                   // Anuncio recompensado
@@ -229,22 +304,26 @@ class _HomeScreenState extends State<HomeScreen>
                     child: Card(
                       elevation: 0,
                       color: const Color(0xFFFFF6E6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
                       child: ListTile(
-                        leading: const Icon(Icons.ondemand_video, color: accent),
+                        leading:
+                        const Icon(Icons.ondemand_video, color: accent),
                         title: const Text('Ver anuncio (+1 swipe)'),
                         subtitle: FutureBuilder<int>(
                           future: _getRewardAdsLeftToday(),
                           builder: (_, snap) {
                             final left = snap.data ?? adsLeft;
-                            return Text('Disponibles hoy: $left / $_maxRewardAdsPerDay');
+                            return Text(
+                                'Disponibles hoy: $left / $_maxRewardAdsPerDay');
                           },
                         ),
                         trailing: ElevatedButton(
                           onPressed: _handleWatchAd,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: accent,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
                           ),
                           child: const Text('+1'),
                         ),
@@ -305,8 +384,8 @@ class _HomeScreenState extends State<HomeScreen>
       body: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          final index = (_controller.value * _gradients.length).floor() %
-              _gradients.length;
+          final index =
+              (_controller.value * _gradients.length).floor() % _gradients.length;
           final nextIndex = (index + 1) % _gradients.length;
           final t = (_controller.value * _gradients.length) % 1.0;
 
@@ -325,11 +404,11 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             child: Column(
               children: [
-                // AppBar custom (igual estética)
+                // AppBar custom
                 SafeArea(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.9),
                       boxShadow: [
@@ -352,10 +431,9 @@ class _HomeScreenState extends State<HomeScreen>
                             letterSpacing: 0.5,
                           ),
                         ),
-
                         Row(
                           children: [
-                            // Botón de swipes (antes era solo icono)
+                            // Botón de swipes
                             GestureDetector(
                               onTap: _openSwipesSheet,
                               child: Stack(
@@ -381,7 +459,10 @@ class _HomeScreenState extends State<HomeScreen>
                                           shape: BoxShape.circle,
                                           gradient: _swipes > 0
                                               ? const LinearGradient(
-                                            colors: [accent, Color(0xFFD69412)],
+                                            colors: [
+                                              accent,
+                                              Color(0xFFD69412)
+                                            ],
                                           )
                                               : null,
                                           color: _swipes == 0
@@ -418,24 +499,14 @@ class _HomeScreenState extends State<HomeScreen>
                             // Notificaciones
                             IconButton(
                               icon: Stack(
-                                children: [
-                                  const Icon(Icons.notifications_none,
+                                children: const [
+                                  Icon(Icons.notifications_none,
                                       color: Colors.black87, size: 28),
-                                  Positioned(
-                                    right: 0,
-                                    top: 0,
-                                    child: Container(
-                                      width: 8,
-                                      height: 8,
-                                      // decoration: const BoxDecoration(
-                                      //   color: Colors.red,
-                                      //   shape: BoxShape.circle,
-                                      // ),
-                                    ),
-                                  ),
                                 ],
                               ),
-                              onPressed: () {/* TODO: notificaciones */},
+                              onPressed: () {
+                                // TODO: notificaciones
+                              },
                             ),
                           ],
                         )
@@ -467,7 +538,8 @@ class _HomeScreenState extends State<HomeScreen>
 
                 Expanded(
                   child: _seleccionVista == 0
-                      ? UsuariosView(onSwipeConsumed: _loadSwipes)
+                  // 👉 aquí enganchamos nuestro callback con interstitial cada 5
+                      ? UsuariosView(onSwipeConsumed: _onSwipeConsumed)
                       : const PisosView(),
                 ),
               ],
@@ -475,7 +547,6 @@ class _HomeScreenState extends State<HomeScreen>
           );
         },
       ),
-
       bottomNavigationBar: AppMenu(
         seleccionMenuInferior: _seleccionMenuInferior,
         cambiarMenuInferior: _cambiarSeleccionMenuInferior,

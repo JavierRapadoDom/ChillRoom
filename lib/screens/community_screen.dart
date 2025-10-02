@@ -10,6 +10,8 @@ import 'home_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'post_detail_screen.dart';
+import 'saved_posts_screen.dart';
+
 
 class CommunityScreen extends StatefulWidget {
   const CommunityScreen({super.key});
@@ -19,9 +21,13 @@ class CommunityScreen extends StatefulWidget {
 }
 
 class _CommunityScreenState extends State<CommunityScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
+  // Branding
   static const Color accent = Color(0xFFE3A62F);
   static const Color accentDark = Color(0xFFD69412);
+  static const Color bgTop = Color(0xFFFFF1D8);
+  static const Color bgMid = Color(0xFFFFF6E6);
+  static const Color bgBase = Color(0xFFF9F7F2);
 
   // Categorías permitidas (coinciden con el ENUM de la BD)
   static const List<String> kCategories = <String>[
@@ -34,6 +40,18 @@ class _CommunityScreenState extends State<CommunityScreen>
     'Otros',
   ];
 
+  // Sugerencias de tags rápidas (compositor)
+  static const List<String> kQuickTags = <String>[
+    'chill',
+    'help',
+    'fiestuki',
+    'study',
+    'gaming',
+    'consejo',
+    'meme',
+    'love'
+  ];
+
   late final AnimationController _bgCtrl;
   late final SupabaseClient _supabase;
 
@@ -43,7 +61,11 @@ class _CommunityScreenState extends State<CommunityScreen>
   bool _hasMore = true;
   String? _cursor;
   final int _pageSize = 20;
+
   String? _selectedCategory;
+
+  // Ordenación
+  _SortMode _sort = _SortMode.latest;
 
   // Destacadas
   final _featured = <_Post>[];
@@ -62,12 +84,11 @@ class _CommunityScreenState extends State<CommunityScreen>
   void initState() {
     super.initState();
     _supabase = Supabase.instance.client;
-    _bgCtrl =
-    AnimationController(vsync: this, duration: const Duration(seconds: 14))
+    _bgCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 16))
       ..repeat();
     _loadInitial();
     _loadWeeklyTheme();
-    _subscribeRealtime(); // 👈 suscripción a cambios en contadores
+    _subscribeRealtime(); // contadores en vivo
   }
 
   @override
@@ -95,6 +116,7 @@ class _CommunityScreenState extends State<CommunityScreen>
       _posts.clear();
       _cursor = null;
       _hasMore = true;
+
       _loadingFeatured = true;
       _featured.clear();
     });
@@ -106,26 +128,35 @@ class _CommunityScreenState extends State<CommunityScreen>
     setState(() => _loading = false);
   }
 
+  // CORREGIDO: devolver PostgrestTransformBuilder para incluir 'order'
+  PostgrestTransformBuilder<dynamic> _baseQuery() {
+    PostgrestFilterBuilder<dynamic> q = _supabase.from('community_posts').select(
+      'id, author_id, title, content, images, tags, like_count, comment_count, created_at, category, theme_id',
+    );
+
+    if (_selectedCategory != null) {
+      q = q.eq('category', _selectedCategory!);
+    }
+
+    if (_cursor != null) {
+      // Paginación por created_at
+      q = q.lt('created_at', _cursor!);
+    }
+
+    final PostgrestTransformBuilder<dynamic> ordered =
+    (_sort == _SortMode.top)
+        ? q.order('like_count', ascending: false)
+        .order('created_at', ascending: false)
+        : q.order('created_at', ascending: false);
+
+    return ordered;
+  }
+
   Future<void> _fetchMore() async {
-    if (_fetchingMore || !mounted || !_hasMore) return;
+    if (_fetchingMore || !_hasMore || !mounted) return;
     _fetchingMore = true;
     try {
-      PostgrestFilterBuilder query = _supabase.from('community_posts').select(
-        'id, author_id, title, content, images, tags, like_count, comment_count, created_at, category, theme_id',
-      );
-
-      if (_selectedCategory != null) {
-        query = query.eq('category', _selectedCategory!);
-      }
-
-      if (_cursor != null) {
-        query = query.lt('created_at', _cursor!);
-      }
-
-      final data = await query
-          .order('created_at', ascending: false)
-          .limit(_pageSize) as List<dynamic>;
-
+      final data = await _baseQuery().limit(_pageSize) as List<dynamic>;
       if (!mounted) return;
 
       final newPosts = data
@@ -160,7 +191,7 @@ class _CommunityScreenState extends State<CommunityScreen>
       _featured.clear();
     });
     try {
-      PostgrestFilterBuilder q = _supabase.from('community_posts').select(
+      PostgrestFilterBuilder<dynamic> q = _supabase.from('community_posts').select(
         'id, author_id, title, content, images, tags, like_count, comment_count, created_at, category, theme_id',
       );
 
@@ -168,6 +199,7 @@ class _CommunityScreenState extends State<CommunityScreen>
         q = q.eq('category', _selectedCategory!);
       }
 
+      // Featured = similar a "top"
       final rows = await q
           .order('like_count', ascending: false)
           .order('created_at', ascending: false)
@@ -188,7 +220,7 @@ class _CommunityScreenState extends State<CommunityScreen>
     }
   }
 
-  // ---- Tema semanal desde BD ----
+  // ---- Tema semanal ----
   Future<void> _loadWeeklyTheme() async {
     setState(() {
       _loadingWeekly = true;
@@ -222,7 +254,9 @@ class _CommunityScreenState extends State<CommunityScreen>
 
   // ---- Realtime: sincroniza contadores live ----
   void _subscribeRealtime() {
-    _postsRt = _supabase.channel('comm_posts_changes').onPostgresChanges(
+    _postsRt = _supabase
+        .channel('comm_posts_changes')
+        .onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'community_posts',
@@ -235,10 +269,12 @@ class _CommunityScreenState extends State<CommunityScreen>
         final commentCount = (newRow['comment_count'] ?? 0) as int;
         if (!mounted) return;
         setState(() {
-          _updateCountsLocally(id, likeCount: likeCount, commentCount: commentCount);
+          _updateCountsLocally(id,
+              likeCount: likeCount, commentCount: commentCount);
         });
       },
-    ).subscribe();
+    )
+        .subscribe();
   }
 
   void _unsubscribeRealtime() {
@@ -269,7 +305,6 @@ class _CommunityScreenState extends State<CommunityScreen>
   }
 
   Future<void> _refreshCountsFromDb(String id) async {
-    // Trae los contadores reales del servidor (por si hay triggers)
     final row = await _supabase
         .from('community_posts')
         .select('like_count, comment_count')
@@ -280,7 +315,8 @@ class _CommunityScreenState extends State<CommunityScreen>
       final likeCount = (row['like_count'] ?? 0) as int;
       final commentCount = (row['comment_count'] ?? 0) as int;
       setState(() {
-        _updateCountsLocally(id, likeCount: likeCount, commentCount: commentCount);
+        _updateCountsLocally(id,
+            likeCount: likeCount, commentCount: commentCount);
       });
     }
   }
@@ -323,12 +359,10 @@ class _CommunityScreenState extends State<CommunityScreen>
     final liked = await _hasUserLiked(p.id);
 
     // Optimista
-    if (!mounted) return;
     setState(() {
       p.likeCount += liked ? -1 : 1;
       if (p.likeCount < 0) p.likeCount = 0;
       p.youLike = !liked;
-      // Sincroniza clones en ambas listas
       _syncLikeStateAcrossLists(p);
     });
 
@@ -345,10 +379,8 @@ class _CommunityScreenState extends State<CommunityScreen>
             .eq('post_id', p.id)
             .eq('user_id', _supabase.auth.currentUser!.id);
       }
-      // Tras completar en servidor, traemos contadores reales
       await _refreshCountsFromDb(p.id);
     } catch (_) {
-      // Revertimos si falla
       if (!mounted) return;
       setState(() {
         p.likeCount += liked ? 1 : -1;
@@ -380,44 +412,64 @@ class _CommunityScreenState extends State<CommunityScreen>
     required String title,
     required String content,
     required String category,
-    File? image,
+    List<File> images = const [],
     List<String> tags = const [],
-    int? themeId,
+    int? themeId, // puede venir del weekly theme (otra tabla)
   }) async {
     final uid = _supabase.auth.currentUser!.id;
     final List<String> imageKeys = [];
 
-    if (image != null) {
+    for (final f in images.take(3)) {
       final fileName =
           '$uid/${DateTime.now().millisecondsSinceEpoch}_${_randomSuffix()}.jpg';
-      await _supabase.storage.from('community.posts').upload(fileName, image);
+      await _supabase.storage.from('community.posts').upload(fileName, f);
       imageKeys.add(fileName);
     }
 
-    final insert = await _supabase.from('community_posts').insert({
+    // 👇 construimos el payload base
+    final payload = <String, dynamic>{
       'author_id': uid,
       'title': title,
       'content': content,
       'images': imageKeys,
       'tags': tags,
-      'theme_id': themeId,
       'category': category,
-    }).select().single();
+    };
+
+    // 👇 si viene themeId, comprobamos que exista en community_themes
+    if (themeId != null) {
+      final exists = await _supabase
+          .from('community_themes')
+          .select('id')
+          .eq('id', themeId)
+          .maybeSingle();
+
+      if (exists != null) {
+        payload['theme_id'] = themeId; // solo lo añadimos si existe
+      }
+      // Si no existe, NO añadimos theme_id y evitamos el 23503
+    }
+
+    final insert = await _supabase
+        .from('community_posts')
+        .insert(payload)
+        .select()
+        .single();
 
     if (!mounted) return;
 
     final newPost = _Post.fromMap(insert, _publicUrl);
 
-    if (!mounted) return;
     setState(() {
       _posts.insert(0, newPost);
     });
 
-    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Publicado en Comunidad')),
     );
   }
+
+
 
   String _randomSuffix() =>
       (DateTime.now().microsecondsSinceEpoch % 1000000).toString();
@@ -444,7 +496,6 @@ class _CommunityScreenState extends State<CommunityScreen>
   }
 
   Future<void> _openPost(_Post p) async {
-    // Espera a volver de detalles y refresca contadores reales de ese post
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PostDetailScreen(postId: p.id)),
@@ -453,194 +504,305 @@ class _CommunityScreenState extends State<CommunityScreen>
     await _refreshCountsFromDb(p.id);
   }
 
-  // ============ SHEET CREAR ============
+  // ============ SHEET CREAR (remodelado) ============
   void _openCreatePostSheet({int? themeId}) {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
-    File? pickedFile;
-    String selectedCat = _selectedCategory ?? 'Otros';
+    final tagCtrl = TextEditingController();
+    final Set<String> tags = {};
+    final List<File> pickedFiles = [];
+    String selectedCat = (() {
+      // si vienes del "Participar", intenta usar la categoría del tema semanal
+      final weeklyCat = _weeklyTheme?.category;
+      if (weeklyCat != null && kCategories.contains(weeklyCat)) return weeklyCat;
+      // si hay un filtro activo, úsalo; si no, "Otros"
+      return kCategories.contains(_selectedCategory ?? '')
+          ? _selectedCategory!
+          : 'Otros';
+    })();
+
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModal) {
-            Future<void> pickImage() async {
-              final XFile? x = await _picker.pickImage(
-                source: ImageSource.gallery,
-                imageQuality: 85,
-              );
-              if (x == null) return;
-              pickedFile = File(x.path);
-              if (mounted) setModal(() {});
-            }
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: StatefulBuilder(
+              builder: (ctx, setModal) {
+                Future<void> pickImage() async {
+                  final XFile? x = await _picker.pickImage(
+                    source: ImageSource.gallery,
+                    imageQuality: 85,
+                  );
+                  if (x == null) return;
+                  pickedFiles.add(File(x.path));
+                  setModal(() {});
+                }
 
-            Future<void> onPublish() async {
-              final t = titleCtrl.text.trim();
-              final c = contentCtrl.text.trim();
-              if (t.isEmpty || c.isEmpty) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Escribe un título y contenido')),
-                );
-                return;
-              }
-              if (Navigator.canPop(ctx)) Navigator.pop(ctx);
-              await _createPost(
-                title: t,
-                content: c,
-                category: selectedCat,
-                image: pickedFile,
-                themeId: themeId,
-              );
-              _loadFeatured();
-            }
+                void addTag([String? quick]) {
+                  final raw = (quick ?? tagCtrl.text).trim();
+                  if (raw.isEmpty) return;
+                  tags.add(raw.replaceAll('#', ''));
+                  tagCtrl.clear();
+                  setModal(() {});
+                }
 
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-                top: 14,
-                left: 16,
-                right: 16,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(999),
+                void removeTag(String t) {
+                  tags.remove(t);
+                  setModal(() {});
+                }
+
+                Future<void> onPublish() async {
+                  final t = titleCtrl.text.trim();
+                  final c = contentCtrl.text.trim();
+                  if (t.isEmpty || c.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Escribe un título y contenido')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(ctx);
+                  await _createPost(
+                    title: t,
+                    content: c,
+                    category: selectedCat,
+                    images: pickedFiles,
+                    tags: tags.toList(),
+                    themeId: themeId,
+                  );
+                  _loadFeatured();
+                }
+
+                return Container(
+                  color: Colors.white.withOpacity(.92),
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                    top: 14,
+                    left: 16,
+                    right: 16,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 44,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text('Crear publicación',
-                        style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: titleCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Título',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: contentCtrl,
-                      minLines: 3,
-                      maxLines: 6,
-                      decoration: InputDecoration(
-                        labelText: '¿Qué quieres compartir?',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: const [
+                            Icon(Icons.edit_note_rounded, color: accentDark),
+                            SizedBox(width: 8),
+                            Text('Crear publicación',
+                                style: TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: titleCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Título',
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: contentCtrl,
+                          minLines: 3,
+                          maxLines: 6,
+                          decoration: InputDecoration(
+                            labelText: '¿Qué quieres compartir?',
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: selectedCat,
+                      value: kCategories.contains(selectedCat) ? selectedCat : null,
                       decoration: InputDecoration(
                         labelText: 'Categoría',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       items: kCategories
-                          .map((c) =>
-                          DropdownMenuItem<String>(value: c, child: Text(c)))
+                          .map((c) => DropdownMenuItem<String>(value: c, child: Text(c)))
                           .toList(),
                       onChanged: (val) {
                         if (val == null) return;
                         setModal(() => selectedCat = val);
                       },
+                      // (opcional) placeholder si value llega null por seguridad
+                      hint: const Text('Selecciona una categoría'),
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: pickImage,
-                          icon: const Icon(Icons.photo_outlined, color: accent),
-                          label: const Text('Añadir foto',
-                              style: TextStyle(color: accent)),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: accent),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
+                        const SizedBox(height: 12),
+                        // Tags rápidas
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ...kQuickTags.map((t) => OutlinedButton(
+                              onPressed: () => addTag(t),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: accentDark),
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                              ),
+                              child: Text('#$t',
+                                  style: const TextStyle(color: accentDark)),
+                            )),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        if (pickedFile != null)
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              image: DecorationImage(
-                                  image: FileImage(pickedFile!),
-                                  fit: BoxFit.cover),
-                              border: Border.all(color: Colors.grey.shade300),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: tagCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Añade tag y pulsa +',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onSubmitted: (_) => addTag(),
+                              ),
                             ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () => addTag(),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accent,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Icon(Icons.add),
+                            ),
+                          ],
+                        ),
+                        if (tags.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: tags
+                                .map(
+                                  (t) => Chip(
+                                label: Text('#$t'),
+                                onDeleted: () => removeTag(t),
+                              ),
+                            )
+                                .toList(),
                           ),
-                        const Spacer(),
-                        ElevatedButton(
-                          onPressed: onPublish,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: accent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: const Text('Publicar'),
+                        ],
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: pickedFiles.length >= 3 ? null : pickImage,
+                              icon: const Icon(Icons.photo_outlined, color: accentDark),
+                              label: Text(
+                                pickedFiles.isEmpty
+                                    ? 'Añadir fotos (hasta 3)'
+                                    : 'Añadir más',
+                                style: const TextStyle(color: accentDark),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: accentDark),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            if (pickedFiles.isNotEmpty)
+                              Expanded(
+                                child: SizedBox(
+                                  height: 64,
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: pickedFiles.length,
+                                    separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 8),
+                                    itemBuilder: (_, i) => Stack(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: Image.file(
+                                            pickedFiles[i],
+                                            height: 64,
+                                            width: 64,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                        Positioned(
+                                          right: -6,
+                                          top: -6,
+                                          child: IconButton(
+                                            iconSize: 18,
+                                            onPressed: () {
+                                              pickedFiles.removeAt(i);
+                                              setModal(() {});
+                                            },
+                                            icon: const Icon(Icons.close_rounded),
+                                            color: Colors.black87,
+                                            splashRadius: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 10),
+                            ElevatedButton.icon(
+                              onPressed: onPublish,
+                              icon: const Icon(Icons.send_rounded),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accent,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                              ),
+                              label: const Text('Publicar'),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-            );
-          },
+                  ),
+                );
+              },
+            ),
+          ),
         );
       },
     );
   }
 
   // ============ UI helpers ============
-  Widget _chip(String text, {IconData? icon}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF6E6),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFF1D18D)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 16, color: accentDark),
-            const SizedBox(width: 6),
-          ],
-          Text(text,
-              style: const TextStyle(
-                  color: accentDark, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
   Widget _categoryChip(String label, {required bool selected}) {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -678,24 +840,6 @@ class _CommunityScreenState extends State<CommunityScreen>
     );
   }
 
-  Widget _skeletonCard({double width = 220, double height = 140}) {
-    return Container(
-      width: width,
-      height: height,
-      margin: const EdgeInsets.only(right: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 12,
-              offset: const Offset(0, 6))
-        ],
-      ),
-    );
-  }
-
   Widget _sectionTitle(String text, {Widget? trailing}) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -723,8 +867,8 @@ class _CommunityScreenState extends State<CommunityScreen>
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Color.lerp(const Color(0xFFFFF0D2), const Color(0xFFFFF6E6), v)!,
-                Color.lerp(const Color(0xFFFFF6E6), const Color(0xFFF9F7F2), v)!,
+                Color.lerp(bgTop, bgMid, v)!,
+                Color.lerp(bgMid, bgBase, v)!,
               ],
             ),
           ),
@@ -794,7 +938,7 @@ class _CommunityScreenState extends State<CommunityScreen>
                 ),
                 SliverToBoxAdapter(
                   child: SizedBox(
-                    height: 240,
+                    height: 260,
                     child: _loadingFeatured
                         ? ListView.builder(
                       padding:
@@ -802,7 +946,7 @@ class _CommunityScreenState extends State<CommunityScreen>
                       scrollDirection: Axis.horizontal,
                       itemCount: 3,
                       itemBuilder: (_, __) =>
-                          _skeletonCard(width: 260, height: 200),
+                          _skeletonCard(width: 260, height: 220),
                     )
                         : (_featured.isEmpty
                         ? Padding(
@@ -834,9 +978,38 @@ class _CommunityScreenState extends State<CommunityScreen>
                   ),
                 ),
 
-                // Feed
+                // Selector de orden
                 SliverToBoxAdapter(
-                    child: _sectionTitle('Últimas publicaciones')),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      children: [
+                        const Text('Feed',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w900)),
+                        const Spacer(),
+                        _SortToggle(
+                          mode: _sort,
+                          onChange: (m) {
+                            if (m == _sort) return;
+                            setState(() {
+                              _sort = m;
+                              _cursor = null;
+                              _hasMore = true;
+                              _posts.clear();
+                              _loading = true;
+                            });
+                            _fetchMore().then((_) {
+                              if (mounted) setState(() => _loading = false);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Feed
                 if (_loading)
                   SliverList.builder(
                     itemCount: 6,
@@ -860,6 +1033,7 @@ class _CommunityScreenState extends State<CommunityScreen>
                         post: p,
                         onLike: () => _toggleLike(p),
                         onOpen: () => _openPost(p),
+                        onDoubleTapLike: () => _toggleLike(p),
                       );
                     },
                   ),
@@ -905,20 +1079,32 @@ class _CommunityScreenState extends State<CommunityScreen>
                         style: TextStyle(
                             fontSize: 26, fontWeight: FontWeight.w900)),
                     const Spacer(),
-                    IconButton(
+                    _GlassIconBtn(
+                      tooltip: 'Guardados',
+                      icon: Icons.bookmark_outline,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const SavedPostsScreen()),
+                        );
+                      },
+                    ),
+                    _GlassIconBtn(
                       tooltip: 'Crear publicación',
-                      onPressed: () => _openCreatePostSheet(
+                      icon: Icons.add_circle_outline,
+                      onTap: () => _openCreatePostSheet(
                         themeId: _weeklyTheme?.id,
                       ),
-                      icon: const Icon(Icons.add_circle_outline,
-                          color: Colors.black87),
                     ),
-                    IconButton(
+                    const SizedBox(width: 6),
+                    _GlassIconBtn(
                       tooltip: 'Buscar',
-                      onPressed: () {}, // TODO: filtros/búsqueda
-                      icon: const Icon(Icons.search_rounded,
-                          color: Colors.black87),
+                      icon: Icons.search_rounded,
+                      onTap: () {
+                        _openSearchSheet();
+                      },
                     ),
+
                   ],
                 ),
               ],
@@ -929,6 +1115,101 @@ class _CommunityScreenState extends State<CommunityScreen>
     );
   }
 
+  void _openSearchSheet() {
+    final qCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            color: Colors.white.withOpacity(.92),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              top: 14, left: 16, right: 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Buscar en Comunidad',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qCtrl,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Título o contenido…',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onSubmitted: (q) async {
+                    Navigator.pop(ctx);
+                    await _runSearch(q);
+                  },
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await _runSearch(qCtrl.text.trim());
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accent,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Buscar'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runSearch(String q) async {
+    final query = q.trim();
+    if (query.isEmpty) return;
+
+    setState(() {
+      _loading = true;
+      _cursor = null;
+      _hasMore = false;
+      _posts.clear();
+    });
+
+    try {
+      // Búsqueda simple por título o contenido
+      final rows = await _supabase
+          .from('community_posts')
+          .select(
+          'id, author_id, title, content, images, tags, like_count, comment_count, created_at, category, theme_id')
+          .or('title.ilike.%$query%,content.ilike.%$query%')
+          .order('created_at', ascending: false) as List<dynamic>;
+
+      final list = rows
+          .map((e) => _Post.fromMap(e as Map<String, dynamic>, _publicUrl))
+          .toList();
+
+      await _markUserLikes(list);
+
+      setState(() {
+        _posts.addAll(list);
+      });
+    } catch (_) {
+      // noop
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Widget _buildWeeklyThemeCard(_WeeklyTheme t) {
     final hasTitle = (t.title?.trim().isNotEmpty ?? false);
     final subtitle = t.subtitle?.trim();
@@ -937,7 +1218,7 @@ class _CommunityScreenState extends State<CommunityScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Container(
-        height: 140,
+        height: 150,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           gradient: const LinearGradient(colors: [accent, accentDark]),
@@ -949,6 +1230,7 @@ class _CommunityScreenState extends State<CommunityScreen>
           ],
         ),
         child: Stack(
+          fit: StackFit.expand,
           children: [
             if (banner != null)
               ClipRRect(
@@ -968,11 +1250,11 @@ class _CommunityScreenState extends State<CommunityScreen>
                 children: [
                   const SizedBox(width: 14),
                   Container(
-                    width: 52,
-                    height: 52,
+                    width: 56,
+                    height: 56,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withOpacity(0.22),
                     ),
                     child: const Icon(Icons.local_fire_department,
                         color: Colors.white, size: 30),
@@ -997,7 +1279,7 @@ class _CommunityScreenState extends State<CommunityScreen>
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 16,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.w900),
                             )
                           else
@@ -1005,11 +1287,11 @@ class _CommunityScreenState extends State<CommunityScreen>
                               'Aún sin título',
                               style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 16,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.w900),
                             ),
                           if ((subtitle?.isNotEmpty ?? false)) ...[
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 6),
                             Text(
                               subtitle!,
                               maxLines: 1,
@@ -1046,11 +1328,111 @@ class _CommunityScreenState extends State<CommunityScreen>
       ),
     );
   }
+
+  // Skeleton helpers
+  Widget _skeletonCard({double width = 220, double height = 140}) {
+    return Container(
+      width: width,
+      height: height,
+      margin: const EdgeInsets.only(right: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 6))
+        ],
+      ),
+    );
+  }
 }
 
 // =======================
 // Model & UI components
 // =======================
+
+enum _SortMode { latest, top }
+
+class _SortToggle extends StatelessWidget {
+  final _SortMode mode;
+  final ValueChanged<_SortMode> onChange;
+  const _SortToggle({required this.mode, required this.onChange});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(.04),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _seg('Nuevos', _SortMode.latest),
+          _seg('Top', _SortMode.top),
+        ],
+      ),
+    );
+  }
+
+  Widget _seg(String label, _SortMode m) {
+    final sel = mode == m;
+    return InkWell(
+      onTap: () => onChange(m),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: sel ? _CommunityColors.accentSoft : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: sel ? _CommunityColors.accent : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: sel ? _CommunityColors.accentDark : Colors.black87,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassIconBtn extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _GlassIconBtn({required this.tooltip, required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Material(
+            color: Colors.white.withOpacity(.35),
+            child: InkWell(
+              onTap: onTap,
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Icon(icon, color: Colors.black87),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _WeeklyTheme {
   final int id; // INT en BD
   final String? title;
@@ -1092,7 +1474,7 @@ class _Post {
   final String authorId;
   final String title;
   final String content;
-  final List<String> imageUrls; // ya convertidas a URL pública
+  final List<String> imageUrls;
   final List<String> tags;
   final DateTime createdAt;
   final String category;
@@ -1117,10 +1499,11 @@ class _Post {
   });
 
   factory _Post.fromMap(
-      Map<String, dynamic> m, String Function(String) publicUrl) {
+      Map<String, dynamic> m,
+      String Function(String) publicUrl,
+      ) {
     final imgs = (m['images'] as List?)?.cast<String>() ?? const [];
-    final urls =
-    imgs.map((k) => k.startsWith('http') ? k : publicUrl(k)).toList();
+    final urls = imgs.map((k) => k.startsWith('http') ? k : publicUrl(k)).toList();
     return _Post(
       id: m['id'] as String,
       authorId: m['author_id'] as String,
@@ -1137,7 +1520,6 @@ class _Post {
   }
 }
 
-// Badge reutilizable para categorías (evita cortes)
 class _CategoryBadge extends StatelessWidget {
   final String text;
   const _CategoryBadge({required this.text});
@@ -1170,23 +1552,121 @@ class _PostCard extends StatefulWidget {
   final _Post post;
   final VoidCallback onLike;
   final VoidCallback onOpen;
+  final VoidCallback onDoubleTapLike;
 
   const _PostCard({
     required this.post,
     required this.onLike,
     required this.onOpen,
+    required this.onDoubleTapLike,
   });
 
   @override
   State<_PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<_PostCard> {
+class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixin {
   bool _expanded = false;
+
+  // CORREGIDO: inicializar en initState para no crear el controller durante dispose()
+  AnimationController? _heartCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _heartCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+  }
+
+  @override
+  void dispose() {
+    _heartCtrl?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _animateHeart() async {
+    final c = _heartCtrl;
+    if (c == null) return;
+    try {
+      await c.forward(from: 0);
+      await c.reverse();
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = widget.post;
+
+    Widget imageBlock() {
+      if (p.imageUrls.isEmpty) return const SizedBox.shrink();
+      final url = p.imageUrls.first;
+      return Stack(
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            child: GestureDetector(
+              onDoubleTap: () {
+                widget.onDoubleTapLike();
+                _animateHeart();
+              },
+              onTap: widget.onOpen,
+              child: Image.network(
+                url,
+                height: 200,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 200,
+                  color: Colors.black12,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.broken_image_outlined, size: 40),
+                ),
+              ),
+            ),
+          ),
+          // Heart burst
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Center(
+                child: ScaleTransition(
+                  scale: Tween(begin: 0.0, end: 1.2)
+                      .chain(CurveTween(curve: Curves.easeOutBack))
+                      .animate(_heartCtrl!),
+                  child: Icon(Icons.favorite,
+                      color: Colors.white.withOpacity(.85), size: 82),
+                ),
+              ),
+            ),
+          ),
+          // Badge de likes
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.45),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(p.youLike ? Icons.favorite : Icons.favorite_border,
+                      color: Colors.white, size: 16),
+                  const SizedBox(width: 4),
+                  Text('${p.likeCount}',
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w800)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       child: GestureDetector(
@@ -1206,17 +1686,7 @@ class _PostCardState extends State<_PostCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (p.imageUrls.isNotEmpty)
-                ClipRRect(
-                  borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
-                  child: Image.network(
-                    p.imageUrls.first,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                ),
+              imageBlock(),
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
                 child: Column(
@@ -1232,9 +1702,7 @@ class _PostCardState extends State<_PostCard> {
                                   fontWeight: FontWeight.w900, fontSize: 16)),
                         ),
                         const SizedBox(width: 8),
-                        Flexible(
-                          child: _CategoryBadge(text: p.category),
-                        ),
+                        Flexible(child: _CategoryBadge(text: p.category)),
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -1249,25 +1717,25 @@ class _PostCardState extends State<_PostCard> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      children: p.tags.take(3).map((t) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFF6E6),
-                            borderRadius: BorderRadius.circular(999),
-                            border:
-                            Border.all(color: const Color(0xFFF1D18D)),
-                          ),
-                          child: Text('#$t',
-                              style: const TextStyle(
-                                  color: _CommunityColors.tag,
-                                  fontWeight: FontWeight.w700)),
-                        );
-                      }).toList(),
-                    ),
+                    if (p.tags.isNotEmpty)
+                      Wrap(
+                        spacing: 6,
+                        children: p.tags.take(3).map((t) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF6E6),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: const Color(0xFFF1D18D)),
+                            ),
+                            child: Text('#$t',
+                                style: const TextStyle(
+                                    color: _CommunityColors.tag,
+                                    fontWeight: FontWeight.w700)),
+                          );
+                        }).toList(),
+                      ),
                   ],
                 ),
               ),
@@ -1318,6 +1786,7 @@ class _FeaturedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasImg = post.imageUrls.isNotEmpty;
     return GestureDetector(
       onTap: onOpen,
       child: Container(
@@ -1336,7 +1805,7 @@ class _FeaturedCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (post.imageUrls.isNotEmpty)
+            if (hasImg)
               ClipRRect(
                 borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(16)),
@@ -1345,7 +1814,7 @@ class _FeaturedCard extends StatelessWidget {
                     Image.network(
                       post.imageUrls.first,
                       width: 260,
-                      height: 120,
+                      height: 140,
                       fit: BoxFit.cover,
                     ),
                     Positioned(
@@ -1438,7 +1907,7 @@ class _WeeklyThemeSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 140,
+      height: 150,
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.6),
         borderRadius: BorderRadius.circular(18),
@@ -1455,7 +1924,7 @@ class _PostSkeleton extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       child: Container(
-        height: 220,
+        height: 240,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1473,4 +1942,7 @@ class _PostSkeleton extends StatelessWidget {
 
 class _CommunityColors {
   static const tag = Color(0xFFD69412);
+  static const accent = Color(0xFFE3A62F);
+  static const accentDark = Color(0xFFD69412);
+  static const accentSoft = Color(0xFFFFF6E6);
 }

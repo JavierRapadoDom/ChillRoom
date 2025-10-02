@@ -386,7 +386,35 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     );
   }
 
-  // ---------- Bloques temáticos no-música (banner) ----------
+  // Chips simples (para football/gaming)
+  Widget _tagChip(String text, {IconData? icon, required Color color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.08),
+        border: Border.all(color: color.withOpacity(.35)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+              color: color.darken(0.2),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------- Bloques temáticos banners ----------
   Widget _footballBanner(SuperInterestThemeConf t) {
     return _themedBanner(
       t,
@@ -412,7 +440,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
         required IconData icon,
       }) {
     return Container(
-      margin: const EdgeInsets.only(top: 8, bottom: 22),
+      margin: const EdgeInsets.only(top: 8, bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -462,6 +490,17 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     );
   }
 
+  // Normalizador para leer "tags"
+  String _norm(String s) => s
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ñ', 'n')
+      .trim();
+
   // ---------- BUILD ----------
   @override
   Widget build(BuildContext context) {
@@ -492,11 +531,13 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
           final fotos = (d['fotos'] as List).cast<String>();
           final photos = fotos.isNotEmpty ? fotos.map(_resolvePhoto).toList() : <String>[];
 
-          // THEME
+          // THEME elegido (music / football / gaming / fallback)
           final theme = SuperInterestThemeConf.fromString(d['super_interes'] as String?);
 
-          // Música: datos para widget
+          // ---------- SUPER_INTERES_DATA NORMALIZADO ----------
           final sidata = (d['super_interes_data'] as Map?)?.cast<String, dynamic>() ?? {};
+
+          // MUSIC
           final prefs = (d['music_prefs'] as Map?)?.cast<String, dynamic>();
           final List<Map<String, dynamic>> topArtists = (() {
             final raw = sidata['top_artists'];
@@ -525,6 +566,75 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
           })();
           final favGenre = (prefs?['favorite_genre'] as String?)?.trim();
 
+          // FOOTBALL
+          final Map<String, dynamic> fbBlock = (() {
+            if (sidata['football'] is Map) {
+              return (sidata['football'] as Map).cast<String, dynamic>();
+            }
+            // Puede venir todo al root (team/idol/tags/crest_asset/crest_url)
+            return sidata;
+          })();
+
+          final String fbTeam = (fbBlock['team'] as String?)?.trim() ?? '';
+          final String fbIdol = (fbBlock['idol'] as String?)?.trim() ??
+              (fbBlock['player'] as String?)?.trim() ??
+              '';
+          final List<String> fbTags = List<String>.from(fbBlock['tags'] ?? const []);
+          final String? fbCrestAsset = fbBlock['crest_asset'] as String?;
+          final String? fbCrestUrl = fbBlock['crest_url'] as String?;
+
+          // Derivados desde tags (si no vienen explícitos)
+          String fbPosition = (fbBlock['position'] as String?)?.trim() ?? '';
+          bool fbPlays5 = (fbBlock['plays_5aside'] as bool?) ?? false;
+
+          final String? posTag = fbTags.cast<String?>().firstWhere(
+                (t) => t != null && _norm(t!).startsWith('posicion:'),
+            orElse: () => null,
+          );
+          if (fbPosition.isEmpty && posTag != null) {
+            final i = posTag.indexOf(':');
+            if (i != -1 && i + 1 < posTag.length) {
+              fbPosition = posTag.substring(i + 1).trim();
+            }
+          }
+          if (!fbPlays5) {
+            fbPlays5 = fbTags.any((t) => _norm(t) == 'juego 5/7');
+          }
+
+          final List<String> fbCompetitions = fbTags
+              .where((t) {
+            final n = _norm(t);
+            return !(n.startsWith('posicion:') || n == 'juego 5/7');
+          })
+              .map((e) => e.trim())
+              .toList();
+
+          // GAMING
+          final Map<String, dynamic> gmBlock = (() {
+            if (sidata['gaming'] is Map) {
+              return (sidata['gaming'] as Map).cast<String, dynamic>();
+            }
+            // También puede venir plano
+            return sidata;
+          })();
+
+          final List<String> gmPlatforms = List<String>.from(gmBlock['platforms'] ?? const []);
+          final List<String> gmGenres = List<String>.from(gmBlock['genres'] ?? const []);
+          final List<String> gmTags = List<String>.from(gmBlock['tags'] ?? const []);
+
+          final String? gmFavGameSingle =
+          (gmBlock['favoriteGame'] ?? gmBlock['favorite_game']) as String?;
+          final List<String> gmFavGamesList = List<String>.from(gmBlock['favoriteGames'] ?? const []);
+          final List<String> gmFavGames = [
+            if (gmFavGameSingle != null && gmFavGameSingle.trim().isNotEmpty)
+              gmFavGameSingle.trim(),
+            ...gmFavGamesList,
+          ];
+
+          final dynamic gmHrs = gmBlock['hoursPerWeek'] ?? gmBlock['hours_per_week'];
+          final String? gmGamerTag = (gmBlock['gamerTag'] ?? gmBlock['gamer_tag']) as String?;
+
+          // ----- UI -----
           return Stack(
             children: [
               // BG degradado temático
@@ -661,8 +771,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        // Sección temática
-                        if (theme.kind == SuperInterest.music)
+                        // Sección temática (detallada según el super interés)
+                        if (theme.kind == SuperInterest.music) ...[
                           MusicTopLists(
                             topArtists: topArtists,
                             topTracks: topTracks,
@@ -670,11 +780,189 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                             badgeColor: theme.primary,
                             cardBg: Colors.white.withOpacity(.04),
                             borderColor: Colors.white.withOpacity(.08),
-                          )
-                        else if (theme.kind == SuperInterest.football)
-                          _footballBanner(theme)
-                        else if (theme.kind == SuperInterest.gaming)
-                            _gamingBanner(theme),
+                          ),
+                        ] else if (theme.kind == SuperInterest.football) ...[
+                          _footballBanner(theme),
+                          _whiteCard(
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Container(
+                                      width: 46,
+                                      height: 46,
+                                      decoration: BoxDecoration(
+                                        color: theme.primary.withOpacity(.1),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: theme.primary.withOpacity(.35)),
+                                      ),
+                                      child: const Icon(Icons.shield_outlined),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            fbTeam.isNotEmpty ? fbTeam : 'Equipo favorito —',
+                                            style: const TextStyle(
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            fbIdol.isNotEmpty ? 'Ídolo: $fbIdol' : 'Ídolo: —',
+                                            style: TextStyle(color: Colors.black.withOpacity(.65)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    if (fbPosition.isNotEmpty)
+                                      _tagChip('Posición: $fbPosition',
+                                          icon: Icons.sports, color: theme.primary),
+                                    _tagChip(fbPlays5 ? 'Juego 5/7' : 'No juego 5/7',
+                                        icon: Icons.calendar_month, color: theme.primary),
+                                  ],
+                                ),
+                                if (fbCompetitions.isNotEmpty) ...[
+                                  const SizedBox(height: 14),
+                                  const Text('Competiciones favoritas',
+                                      style:
+                                      TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: fbCompetitions
+                                        .map((c) => _tagChip(c, color: theme.primary))
+                                        .toList(),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ] else if (theme.kind == SuperInterest.gaming) ...[
+                          _gamingBanner(theme),
+                          _whiteCard(
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 46,
+                                      height: 46,
+                                      decoration: BoxDecoration(
+                                        color: theme.primary.withOpacity(.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.sports_esports),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            gmFavGames.isNotEmpty
+                                                ? gmFavGames.first
+                                                : 'Juego favorito —',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            gmGamerTag != null && gmGamerTag.trim().isNotEmpty
+                                                ? 'GamerTag: $gmGamerTag'
+                                                : (gmHrs != null
+                                                ? 'Horas/semana: $gmHrs'
+                                                : '—'),
+                                            style: TextStyle(
+                                              color: Colors.black.withOpacity(.65),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                if (gmPlatforms.isNotEmpty) ...[
+                                  const Text('Plataformas',
+                                      style: TextStyle(
+                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: gmPlatforms
+                                        .map((p) => _tagChip(p, color: theme.primary))
+                                        .toList(),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                                if (gmGenres.isNotEmpty) ...[
+                                  const Text('Géneros',
+                                      style: TextStyle(
+                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: gmGenres
+                                        .map((g) => _tagChip(g, color: theme.primary))
+                                        .toList(),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                                if (gmFavGames.length > 1) ...[
+                                  const Text('Más juegos favoritos',
+                                      style: TextStyle(
+                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: gmFavGames
+                                        .skip(1)
+                                        .map((g) => _tagChip(g, color: theme.primary))
+                                        .toList(),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                                if (gmTags.isNotEmpty) ...[
+                                  const Text('Detalles',
+                                      style: TextStyle(
+                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: gmTags
+                                        .map((t) => _tagChip(t, color: theme.primary))
+                                        .toList(),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        const SizedBox(height: 18),
 
                         // BIO
                         if ((d['biografia'] as String).trim().isNotEmpty) ...[
@@ -966,5 +1254,15 @@ class _DisabledCTA extends StatelessWidget {
         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
       ),
     );
+  }
+}
+
+// ---------- utils pequeñito ----------
+extension _ColorX on Color {
+  Color darken(double amount) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return hslDark.toColor();
   }
 }

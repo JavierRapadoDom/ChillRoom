@@ -8,6 +8,7 @@ class MusicSection extends StatelessWidget {
   final List<Map<String, dynamic>> topArtists;
   final List<Map<String, dynamic>> topTracks;
   final VoidCallback? onConnect;
+  final VoidCallback? onReload; // NUEVO
 
   const MusicSection({
     super.key,
@@ -16,6 +17,7 @@ class MusicSection extends StatelessWidget {
     required this.topArtists,
     required this.topTracks,
     this.onConnect,
+    this.onReload, // NUEVO
   });
 
   @override
@@ -75,6 +77,16 @@ class MusicSection extends StatelessWidget {
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                               child: const Text('Conectar'),
+                            )
+                          else if (hasSpotify && onReload != null)
+                            ElevatedButton.icon(
+                              onPressed: onReload, // NUEVO
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Recargar'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white, foregroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
                             ),
                         ],
                       ),
@@ -111,11 +123,8 @@ class MusicSection extends StatelessWidget {
                       : Wrap(
                     spacing: 8, runSpacing: 8,
                     children: topArtists.map((a) {
-                      final name = a['name'] as String? ?? 'Artista';
-                      String? img;
-                      if (a['images'] is List && (a['images'] as List).isNotEmpty) {
-                        img = (a['images'][0]['url']) as String?;
-                      }
+                      final name = _asString(a['name']) ?? 'Artista';
+                      final img = _extractArtistImageUrl(a);
                       return ArtistChip(name: name, imageUrl: img);
                     }).toList(),
                   ),
@@ -140,17 +149,9 @@ class MusicSection extends StatelessWidget {
                   )
                       : Column(
                     children: topTracks.map((t) {
-                      final title = t['name'] as String? ?? 'Canción';
-                      final artists = ((t['artists'] as List?) ?? const [])
-                          .map((e) => (e['name'] as String?) ?? '')
-                          .where((s) => s.isNotEmpty)
-                          .join(', ');
-                      String? cover;
-                      if (t['album'] is Map &&
-                          (t['album']['images'] is List) &&
-                          (t['album']['images'] as List).isNotEmpty) {
-                        cover = (t['album']['images'][0]['url']) as String?;
-                      }
+                      final title = _asString(t['name']) ?? 'Canción';
+                      final artists = _extractArtistsNames(t);
+                      final cover = _extractTrackCoverUrl(t);
                       return TrackTile(title: title, subtitle: artists, coverUrl: cover);
                     }).toList(),
                   ),
@@ -161,6 +162,81 @@ class MusicSection extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // ===== Helpers robustos de parseo =====
+
+  static String? _asString(dynamic v) => (v is String && v.trim().isNotEmpty) ? v : null;
+
+  /// Artista: intenta varias formas comunes:
+  /// - { images: [ { url } ] }
+  /// - { image } / { imageUrl } / { picture }
+  static String? _extractArtistImageUrl(Map a) {
+    // 1) images: [{url: ...}, ...]
+    final images = a['images'];
+    if (images is List && images.isNotEmpty) {
+      final first = images.first;
+      if (first is Map && _asString(first['url']) != null) return first['url'] as String;
+      // a veces las imágenes vienen como lista de strings
+      if (first is String && _asString(first) != null) return first;
+      // busca el primer map que tenga url
+      for (final it in images) {
+        if (it is Map && _asString(it['url']) != null) return it['url'] as String;
+        if (it is String && _asString(it) != null) return it;
+      }
+    }
+    // 2) variantes planas
+    for (final k in const ['image', 'imageUrl', 'picture', 'photo', 'avatar']) {
+      final v = a[k];
+      if (_asString(v) != null) return v as String;
+    }
+    return null;
+  }
+
+  /// Track cover: intenta:
+  /// - { album: { images: [ { url } ] } }
+  /// - { image } / { imageUrl } / { cover } / { thumbnail }
+  static String? _extractTrackCoverUrl(Map t) {
+    final album = t['album'];
+    if (album is Map) {
+      final imgs = album['images'];
+      if (imgs is List && imgs.isNotEmpty) {
+        final first = imgs.first;
+        if (first is Map && _asString(first['url']) != null) return first['url'] as String;
+        if (first is String && _asString(first) != null) return first;
+        for (final it in imgs) {
+          if (it is Map && _asString(it['url']) != null) return it['url'] as String;
+          if (it is String && _asString(it) != null) return it;
+        }
+      }
+    }
+    for (final k in const ['image', 'imageUrl', 'cover', 'thumbnail']) {
+      final v = t[k];
+      if (_asString(v) != null) return v as String;
+    }
+    return null;
+  }
+
+  /// Nombres de artistas de un track:
+  /// - { artists: [ { name }, ... ] }
+  /// - o { artists: [ "nombre", ... ] }
+  static String _extractArtistsNames(Map t) {
+    final raw = t['artists'];
+    if (raw is List) {
+      final names = <String>[];
+      for (final it in raw) {
+        if (it is Map) {
+          final n = _asString(it['name']);
+          if (n != null) names.add(n);
+        } else if (it is String && _asString(it) != null) {
+          names.add(it);
+        }
+      }
+      if (names.isNotEmpty) return names.join(', ');
+    }
+    // fallback: a veces viene como single artist
+    final single = _asString(t['artist']) ?? _asString(t['artist_name']);
+    return single ?? '';
   }
 
   Widget _musicHeaderBackground() {

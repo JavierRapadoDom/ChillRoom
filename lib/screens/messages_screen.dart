@@ -1,6 +1,7 @@
 // lib/screens/messages_screen.dart
 import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/chat_service.dart';
@@ -35,12 +36,283 @@ class _MessagesScreenState extends State<MessagesScreen> {
   // Solicitudes pendientes -> badge
   int _pendingCount = 0;
 
+  void _openAddFriendModalWithPrefill(String code) {
+    // Abre el modal de “Añadir amigo” con el código precargado en la pestaña 2
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final controller = TextEditingController(text: code);
+        int tabIndex = 1; // 0 = Mi código, 1 = Introducir código
+
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            return ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+              child: Material(
+                color: Colors.white.withOpacity(.96),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: 16, right: 16, top: 14,
+                      bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Pestañas estilo "segmented"
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(.06),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            children: [
+                              _SegTab(
+                                text: 'Mi código',
+                                selected: tabIndex == 0,
+                                onTap: () => setModal(() => tabIndex = 0),
+                              ),
+                              const SizedBox(width: 6),
+                              _SegTab(
+                                text: 'Introducir código',
+                                selected: tabIndex == 1,
+                                onTap: () => setModal(() => tabIndex = 1),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Contenido de cada pestaña
+                        if (tabIndex == 0) _MyCodePanel(), // tu panel “Mi código” (si ya lo tienes hecho)
+                        if (tabIndex == 1)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Introduce el código de tu amigo',
+                                  style: TextStyle(fontWeight: FontWeight.w800)),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: controller,
+                                autofocus: true,
+                                textCapitalization: TextCapitalization.characters,
+                                decoration: const InputDecoration(
+                                  hintText: 'ABCD-1234',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  icon: const Icon(Icons.person_add_alt_1),
+                                  label: const Text('Enviar solicitud'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _MessagesScreenState.accent,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                  onPressed: () async {
+                                    final input = controller.text.trim();
+                                    if (input.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Introduce un código válido')),
+                                      );
+                                      return;
+                                    }
+                                    try {
+                                      await FriendRequestService.instance.sendByCode(input);
+                                      if (context.mounted) {
+                                        Navigator.pop(ctx);
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Solicitud enviada ✨')),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('No se pudo enviar: $e')),
+                                        );
+                                      }
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+
+  // ================= NUEVO: CODIGOS / AMIGOS =================
+  Future<String> _ensureMyFriendCode() async {
+    final uid = _sb.auth.currentUser!.id;
+
+    // 1) Buscar si ya existe
+    final existing = await _sb
+        .from('friend_codes')
+        .select('code')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+    if (existing != null && existing['code'] is String) {
+      return existing['code'] as String;
+    }
+
+    // 2) Generar código corto bonito (7-8 chars)
+    // Mezcla uid y tiempo para minimizar colisiones.
+    String _generate() {
+      final t = DateTime.now().millisecondsSinceEpoch;
+      final base = (uid + t.toString()).hashCode.abs();
+      final alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/1/O/I
+      final len = 8;
+      var n = base;
+      final b = StringBuffer();
+      for (int i = 0; i < len; i++) {
+        b.write(alphabet[n % alphabet.length]);
+        n = n ~/ alphabet.length;
+      }
+      return b.toString();
+    }
+
+    String code = _generate();
+
+    // 3) Guardar. Si colisiona, reintenta hasta 3 veces.
+    for (int i = 0; i < 3; i++) {
+      try {
+        await _sb.from('friend_codes').upsert(
+          {'user_id': uid, 'code': code},
+          onConflict: 'user_id',
+        );
+        return code;
+      } catch (_) {
+        // intentar otro código
+        code = _generate();
+      }
+    }
+    // Último intento
+    await _sb.from('friend_codes').upsert(
+      {'user_id': uid, 'code': code},
+      onConflict: 'user_id',
+    );
+    return code;
+  }
+
+  Future<String?> _resolveUserIdByCode(String codeOrLink) async {
+    // Permite pegar el link "chillroom://add-friend?c=XXXXXX"
+    final uri = Uri.tryParse(codeOrLink.trim());
+    String code = codeOrLink.trim().toUpperCase();
+    if (uri != null && uri.queryParameters.containsKey('c')) {
+      code = uri.queryParameters['c']!.trim().toUpperCase();
+    }
+    if (code.isEmpty) return null;
+
+    final row = await _sb
+        .from('friend_codes')
+        .select('user_id, code')
+        .eq('code', code)
+        .maybeSingle();
+
+    return row != null ? (row['user_id'] as String) : null;
+  }
+
+  Future<void> _sendFriendRequestTo(String targetUserId) async {
+    final me = _sb.auth.currentUser!.id;
+    if (targetUserId == me) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No puedes enviarte una solicitud a ti mismo')),
+      );
+      return;
+    }
+
+    // Evitar duplicadas: si ya hay pendiente o aceptada en ambas direcciones
+    final existing = await _sb
+        .from('solicitudes_amigo')
+        .select('id, estado, emisor_id, receptor_id')
+        .or('and(emisor_id.eq.$me,receptor_id.eq.$targetUserId),and(emisor_id.eq.$targetUserId,receptor_id.eq.$me))')
+        .limit(1);
+
+    if (existing is List && existing.isNotEmpty) {
+      final e = existing.first as Map<String, dynamic>;
+      final estado = (e['estado'] ?? '').toString();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(
+          estado == 'aceptada'
+              ? 'Ya sois amigos'
+              : 'Ya existe una solicitud ${estado == 'pendiente' ? 'pendiente' : estado}',
+        )),
+      );
+      return;
+    }
+
+    await _sb.from('solicitudes_amigo').insert({
+      'emisor_id': me,
+      'receptor_id': targetUserId,
+      'estado': 'pendiente',
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Solicitud enviada ✅')),
+    );
+  }
+
+  void _openAddFriendModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return _AddFriendSheet(
+          ensureMyCode: _ensureMyFriendCode,
+          resolveByCode: _resolveUserIdByCode,
+          sendRequestTo: _sendFriendRequestTo,
+        );
+      },
+    );
+  }
+  // =========================================================
+
   @override
   void initState() {
     super.initState();
     _loadChats();
     _refreshPendingCount();
     _searchCtrl.addListener(_onSearchChanged);
+    @override
+    void didChangeDependencies() {
+      super.didChangeDependencies();
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && (args['openAddFriend'] == true || args['friendCode'] != null)) {
+        // Abre el modal con la pestaña de "Introducir código"
+        final String? code = args['friendCode'] as String?;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _openAddFriendModalWithPrefill(code ?? ''); // ← ya lo tenías implementado
+        });
+      }
+    }
   }
 
   @override
@@ -66,13 +338,31 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   Future<void> _refreshPendingCount() async {
     try {
-      final reqs = await FriendRequestService.instance.myIncoming();
+      final reqs = await _myIncoming();
       if (!mounted) return;
       setState(() => _pendingCount = reqs.length);
     } catch (_) {
       if (!mounted) return;
       setState(() => _pendingCount = 0);
     }
+  }
+
+  // Reimplementación muy simple de myIncoming() para no depender de service externo
+  Future<List<Map<String, dynamic>>> _myIncoming() async {
+    final me = _sb.auth.currentUser!.id;
+    final rows = await _sb
+        .from('solicitudes_amigo')
+        .select(r'''
+          id, emisor_id, receptor_id, estado, created_at,
+          emisor:usuarios!solicitudes_amigo_emisor_id_fkey(
+            id,nombre,perfiles:perfiles!perfiles_usuario_id_fkey(fotos)
+          )
+        ''')
+        .eq('receptor_id', me)
+        .eq('estado', 'pendiente')
+        .order('created_at', ascending: false) as List;
+
+    return rows.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   String _badgeText(int n) => n > 99 ? '99+' : '$n';
@@ -93,13 +383,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
             )
           ''')
           .or('usuario1_id.eq.${me.id},usuario2_id.eq.${me.id}')
-      // ⚡️ Sólo el último mensaje por chat
           .order('created_at', referencedTable: 'mensajes', ascending: false)
           .limit(1, referencedTable: 'mensajes');
 
       if (!mounted) return;
 
-      // Avatares (1 query)
+      // Avatares
       final ids = <String>{
         for (final r in rows as List)
           ...[(r['usuario1'] as Map)['id'], (r['usuario2'] as Map)['id']]
@@ -133,7 +422,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
         final msgs = (r['mensajes'] as List);
         final last = msgs.isNotEmpty ? msgs.first as Map<String, dynamic> : null;
 
-        // ✅ Consideramos "unread" si el último mensaje es entrante y no visto
         final unread = last != null &&
             !(last['visto'] as bool? ?? true) &&
             last['emisor_id'] != me.id;
@@ -157,31 +445,28 @@ class _MessagesScreenState extends State<MessagesScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      // Opcional: mostrar error
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error cargando chats: $e')),
       );
     } finally {
-      if (mounted) setState(() => _loading = false); // ✅ nunca se queda colgado
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  // ====== INICIAR CHAT MANUALMENTE ======
+  // Iniciar chat manualmente (seguimos igual)
   Future<List<Map<String, dynamic>>> _fetchFriends() async {
     final me = _sb.auth.currentUser!.id;
 
-    // Relaciones aceptadas donde participo yo
     final rels = await _sb
         .from('solicitudes_amigo')
         .select('emisor_id,receptor_id,estado')
         .eq('estado', 'aceptada')
         .or('emisor_id.eq.$me,receptor_id.eq.$me') as List;
 
-    // IDs únicos de amigos
-    final friendIds = <String>{
+    final friendIds = <String>[
       for (final r in rels)
         (r['emisor_id'] == me ? r['receptor_id'] : r['emisor_id']) as String
-    }.toList();
+    ].toSet().toList();
 
     if (friendIds.isEmpty) return const [];
 
@@ -208,8 +493,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
     })
         .toList();
 
-    list.sort((a, b) =>
-        (a['nombre'] as String).toLowerCase().compareTo((b['nombre'] as String).toLowerCase()));
+    list.sort((a, b) => (a['nombre'] as String)
+        .toLowerCase()
+        .compareTo((b['nombre'] as String).toLowerCase()));
 
     return list;
   }
@@ -269,7 +555,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         ),
       );
       if (!mounted) return;
-      _loadChats(); // refrescamos la lista tras volver
+      _loadChats();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -277,9 +563,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
       );
     }
   }
-  // ======================================
 
-  // --------- Borrado de chat (mantener pulsado) ---------
+  // Borrado chat (igual que antes)
   void _openChatMenu(Map<String, dynamic> chat) {
     final partner = chat['partner'] as Map<String, dynamic>;
     showModalBottomSheet(
@@ -369,7 +654,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   Future<void> _deleteChat(String chatId) async {
     try {
-      await _sb.from('mensajes').delete().eq('chat_id', chatId); // por si no hay cascade
+      await _sb.from('mensajes').delete().eq('chat_id', chatId);
     } catch (_) {}
     try {
       await _sb.from('chats').delete().eq('id', chatId);
@@ -390,7 +675,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
       );
     }
   }
-  // ------------------------------------------------------
 
   String _fmtTime(String iso) {
     final dt = DateTime.parse(iso).toLocal();
@@ -427,8 +711,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
           if (_pendingCount > 0) ...[
             const SizedBox(width: 6),
             Container(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.redAccent,
                 borderRadius: BorderRadius.circular(10),
@@ -450,7 +733,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        // ✅ FAB “Iniciar chat”
+        // FAB “Iniciar chat”
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _openStartChatSheet,
           backgroundColor: accent,
@@ -460,7 +743,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
         ),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
-        // ✅ Menú inferior fuera del body
         bottomNavigationBar: AppMenu(
           seleccionMenuInferior: _bottomIdx,
           cambiarMenuInferior: _onBottomNavTap,
@@ -477,10 +759,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
           child: SafeArea(
             child: Column(
               children: [
-                // AppBar custom con buscador (sin botón iniciar chat aquí)
+                // AppBar custom con buscador + NUEVO botón agregar amigo
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
                       if (!_isSearching) ...[
@@ -493,6 +774,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           ),
                         ),
                         const Spacer(),
+                        IconButton(
+                          tooltip: 'Agregar amigo',
+                          icon: const Icon(Icons.person_add_alt_1, color: accent),
+                          onPressed: _openAddFriendModal,
+                        ),
                         IconButton(
                           icon: const Icon(Icons.search, color: accent),
                           onPressed: () {
@@ -533,8 +819,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   indicatorColor: accent,
                   labelColor: accent,
                   unselectedLabelColor: Colors.grey[600],
-                  labelStyle:
-                  const TextStyle(fontWeight: FontWeight.w600),
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w600),
                   tabs: [
                     const Tab(text: 'Mensajes'),
                     solicitudesTab,
@@ -546,16 +831,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     children: [
                       // Chats
                       _loading
-                          ? const Center(
-                          child: CircularProgressIndicator())
+                          ? const Center(child: CircularProgressIndicator())
                           : _filteredChats.isEmpty
                           ? Center(
                         child: Column(
-                          mainAxisAlignment:
-                          MainAxisAlignment.center,
-                          children: [
-                            const Text('No tienes chats aún'),
-                            const SizedBox(height: 8)
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Text('No tienes chats aún'),
+                            SizedBox(height: 8),
                           ],
                         ),
                       )
@@ -565,34 +848,23 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           await _refreshPendingCount();
                         },
                         child: ListView.builder(
-                          physics:
-                          const AlwaysScrollableScrollPhysics(), // ✅ evita que el refresh “no tire”
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(12),
                           itemCount: _filteredChats.length,
                           itemBuilder: (ctx, i) {
                             final c = _filteredChats[i];
-                            final p = c['partner']
-                            as Map<String, dynamic>;
-                            final last = c['lastMsg']
-                            as Map<String, dynamic>?;
-                            final time = last != null
-                                ? _fmtTime(
-                                last['created_at'])
-                                : '';
-                            final unread =
-                            c['unread'] as bool;
+                            final p = c['partner'] as Map<String, dynamic>;
+                            final last = c['lastMsg'] as Map<String, dynamic>?;
+                            final time = last != null ? _fmtTime(last['created_at']) : '';
+                            final unread = c['unread'] as bool;
 
                             return GestureDetector(
-                              onLongPress: () =>
-                                  _openChatMenu(c),
+                              onLongPress: () => _openChatMenu(c),
                               child: Container(
-                                margin: const EdgeInsets
-                                    .symmetric(vertical: 6),
+                                margin: const EdgeInsets.symmetric(vertical: 6),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius:
-                                  BorderRadius.circular(
-                                      16),
+                                  borderRadius: BorderRadius.circular(16),
                                   boxShadow: const [
                                     BoxShadow(
                                       color: Colors.black12,
@@ -605,82 +877,52 @@ class _MessagesScreenState extends State<MessagesScreen> {
                                   onTap: () => Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (_) =>
-                                          ChatDetailScreen(
-                                            chatId: c['chatId']
-                                            as String,
-                                            companero: {
-                                              'id': p['id'],
-                                              'nombre':
-                                              p['nombre'],
-                                              'foto_perfil':
-                                              p['foto'],
-                                            },
-                                          ),
+                                      builder: (_) => ChatDetailScreen(
+                                        chatId: c['chatId'] as String,
+                                        companero: {
+                                          'id': p['id'],
+                                          'nombre': p['nombre'],
+                                          'foto_perfil': p['foto'],
+                                        },
+                                      ),
                                     ),
                                   ),
-                                  contentPadding:
-                                  const EdgeInsets
-                                      .symmetric(
-                                      horizontal: 16,
-                                      vertical: 8),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 8),
                                   leading: CircleAvatar(
                                     radius: 26,
-                                    backgroundColor: accent
-                                        .withOpacity(0.2),
+                                    backgroundColor: accent.withOpacity(0.2),
                                     backgroundImage:
-                                    p['foto'] != null
-                                        ? NetworkImage(
-                                        p['foto'])
-                                        : null,
+                                    p['foto'] != null ? NetworkImage(p['foto']) : null,
                                     child: p['foto'] == null
-                                        ? const Icon(
-                                        Icons.person,
-                                        color: accent,
-                                        size: 28)
+                                        ? const Icon(Icons.person, color: accent, size: 28)
                                         : null,
                                   ),
                                   title: Text(
                                     p['nombre'],
-                                    style: const TextStyle(
-                                        fontWeight:
-                                        FontWeight.w600),
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
                                   ),
                                   subtitle: Text(
-                                    last != null
-                                        ? last['mensaje']
-                                    as String
-                                        : 'Sin mensajes',
+                                    last != null ? last['mensaje'] as String : 'Sin mensajes',
                                     maxLines: 1,
-                                    overflow:
-                                    TextOverflow.ellipsis,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                   trailing: Column(
-                                    mainAxisAlignment:
-                                    MainAxisAlignment
-                                        .center,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Text(
                                         time,
                                         style: const TextStyle(
-                                            fontSize: 12,
-                                            color:
-                                            Colors.grey),
+                                            fontSize: 12, color: Colors.grey),
                                       ),
                                       if (unread)
                                         Container(
-                                          margin:
-                                          const EdgeInsets
-                                              .only(
-                                              top: 6),
+                                          margin: const EdgeInsets.only(top: 6),
                                           width: 12,
                                           height: 12,
-                                          decoration:
-                                          const BoxDecoration(
-                                            color: Colors
-                                                .redAccent,
-                                            shape: BoxShape
-                                                .circle,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.redAccent,
+                                            shape: BoxShape.circle,
                                           ),
                                         ),
                                     ],
@@ -692,8 +934,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         ),
                       ),
 
-                      // Solicitudes (sin crear chat automático)
-                      _RequestsList(onChanged: _refreshPendingCount),
+                      // Solicitudes (reutilizamos myIncoming local)
+                      _RequestsList(onChanged: _refreshPendingCount, fetch: _myIncoming, sb: _sb),
                     ],
                   ),
                 ),
@@ -706,7 +948,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 }
 
-// ====== Sheet para elegir amigo ======
+// ====== Sheet para elegir amigo (igual) ======
 class _FriendPickerSheet extends StatefulWidget {
   final List<Map<String, dynamic>> friends;
   final ValueChanged<Map<String, dynamic>> onPick;
@@ -738,26 +980,23 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
       _filtered = t.isEmpty
           ? List.from(widget.friends)
           : widget.friends
-          .where((u) =>
-          (u['nombre'] as String).toLowerCase().contains(t))
+          .where((u) => (u['nombre'] as String).toLowerCase().contains(t))
           .toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final maxH = MediaQuery.of(context).size.height * 0.6; // ✅ altura estable
+    final maxH = MediaQuery.of(context).size.height * 0.6;
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 6),
             const Text('Iniciar chat',
-                style:
-                TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -778,8 +1017,7 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
             if (_filtered.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text(
-                    'No tienes amigos todavía o no coinciden con la búsqueda.'),
+                child: Text('No tienes amigos o no coinciden con la búsqueda.'),
               )
             else
               ConstrainedBox(
@@ -794,12 +1032,9 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
                       leading: CircleAvatar(
                         radius: 22,
                         backgroundColor: const Color(0x33E3A62F),
-                        backgroundImage: u['foto'] != null
-                            ? NetworkImage(u['foto'])
-                            : null,
+                        backgroundImage: u['foto'] != null ? NetworkImage(u['foto']) : null,
                         child: u['foto'] == null
-                            ? const Icon(Icons.person,
-                            color: _MessagesScreenState.accent)
+                            ? const Icon(Icons.person, color: _MessagesScreenState.accent)
                             : null,
                       ),
                       title: Text(u['nombre'] as String),
@@ -816,10 +1051,323 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
   }
 }
 
-// ====== Solicitudes (sin crear chat auto al aceptar) ======
+/* ===========================
+ *   NUEVO: ADD FRIEND SHEET
+ * =========================== */
+class _AddFriendSheet extends StatefulWidget {
+  final Future<String> Function() ensureMyCode;
+  final Future<String?> Function(String) resolveByCode;
+  final Future<void> Function(String) sendRequestTo;
+  final String? prefillCode;          // NUEVO
+  final int initialTabIndex;          // NUEVO
+
+  const _AddFriendSheet({
+    required this.ensureMyCode,
+    required this.resolveByCode,
+    required this.sendRequestTo,
+    this.prefillCode,
+    this.initialTabIndex = 0,
+  });
+
+  @override
+  State<_AddFriendSheet> createState() => _AddFriendSheetState();
+}
+
+class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProviderStateMixin {
+  static const Color accent = _MessagesScreenState.accent;
+
+  late final TabController _tabCtrl = TabController(
+    length: 2, vsync: this, initialIndex: widget.initialTabIndex.clamp(0, 1),
+  );
+
+  String? _myCode;
+  bool _loadingMyCode = true;
+  final _codeCtrl = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.prefillCode != null) {
+      _codeCtrl.text = widget.prefillCode!;
+    }
+    _loadMyCode();
+  }
+
+  Future<void> _loadMyCode() async {
+    setState(() => _loadingMyCode = true);
+    try {
+      final code = await widget.ensureMyCode();
+      if (!mounted) return;
+      setState(() => _myCode = code.toUpperCase());
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo obtener tu código: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingMyCode = false);
+    }
+  }
+
+  String _linkFromCode(String code) => 'chillroom://add-friend?c=$code';
+
+  Future<void> _copy(String text, {String? toast}) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(toast ?? 'Copiado al portapapeles')),
+    );
+  }
+
+  Future<void> _submit() async {
+    final raw = _codeCtrl.text.trim();
+    if (raw.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Introduce un código o enlace')),
+      );
+      return;
+    }
+
+    setState(() => _sending = true);
+    try {
+      final uid = await widget.resolveByCode(raw);
+      if (uid == null) {
+        throw 'Código no válido';
+      }
+      await widget.sendRequestTo(uid);
+      if (!mounted) return;
+      Navigator.pop(context); // cerrar modal al enviar
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    _codeCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+      child: Material(
+        color: Colors.white,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 46, height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text('Agregar amigo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+
+              // pestañas
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F3F5),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: TabBar(
+                    controller: _tabCtrl,
+                    indicator: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: accent, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.06),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        )
+                      ],
+                    ),
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    labelPadding: const EdgeInsets.symmetric(vertical: 10),
+                    labelStyle: const TextStyle(fontWeight: FontWeight.w800),
+                    unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
+                    labelColor: Colors.black,
+                    unselectedLabelColor: Colors.black54,
+                    tabs: const [
+                      Tab(text: 'Mi código'),
+                      Tab(text: 'Introducir código'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              SizedBox(
+                height: 220,
+                child: TabBarView(
+                  controller: _tabCtrl,
+                  children: [
+                    // ---- MI CODIGO ----
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: _loadingMyCode
+                          ? const Center(child: CircularProgressIndicator())
+                          : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFFF4DC), Color(0xFFFCE9BE)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 6),
+                                )
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                const Text('Tu código', style: TextStyle(fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 8),
+                                SelectableText(
+                                  _myCode ?? '———',
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 2,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: _myCode == null ? null : () => _copy(_myCode!, toast: 'Código copiado'),
+                                      icon: const Icon(Icons.copy),
+                                      label: const Text('Copiar código'),
+                                      style: OutlinedButton.styleFrom(
+                                        side: BorderSide(color: accent),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    FilledButton.icon(
+                                      onPressed: _myCode == null ? null : () => _copy(_linkFromCode(_myCode!), toast: 'Enlace copiado'),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: Colors.black87,  // mejor contraste que amarillo
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      ),
+                                      icon: const Icon(Icons.link),
+                                      label: const Text('Copiar enlace'),
+                                    ),
+                                  ],
+                                ),
+
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Comparte tu código o enlace. Cuando lo introduzcan, recibirás su solicitud.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ---- INTRODUCIR CODIGO ----
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: Column(
+                        children: [
+                          TextField(
+                            controller: _codeCtrl,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(
+                              labelText: 'Código o enlace',
+                              hintText: 'Ej: 8ZP3K7Q o chillroom://add-friend?c=8ZP3K7Q',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              suffixIcon: IconButton(
+                                tooltip: 'Pegar',
+                                icon: const Icon(Icons.paste),
+                                onPressed: () async {
+                                  final data = await Clipboard.getData('text/plain');
+                                  if (data?.text != null) {
+                                    _codeCtrl.text = data!.text!;
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _sending ? null : _submit,
+                              icon: _sending
+                                  ? const SizedBox(
+                                width: 18, height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                                  : const Icon(Icons.send_rounded),
+                              label: Text(_sending ? 'Enviando…' : 'Enviar solicitud'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accent,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Pega aquí el código o enlace de la otra persona para enviarle una solicitud.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ====== Solicitudes (usa fetch inyectado) ======
 class _RequestsList extends StatefulWidget {
   final Future<void> Function()? onChanged;
-  const _RequestsList({super.key, this.onChanged});
+  final Future<List<Map<String, dynamic>>> Function() fetch;
+  final SupabaseClient sb;
+  const _RequestsList({super.key, this.onChanged, required this.fetch, required this.sb});
 
   @override
   State<_RequestsList> createState() => _RequestsListState();
@@ -827,7 +1375,13 @@ class _RequestsList extends StatefulWidget {
 
 class _RequestsListState extends State<_RequestsList> {
   static const Color accent = _MessagesScreenState.accent;
-  final _svc = FriendRequestService.instance;
+
+  Future<void> _respond(String id, bool accept) async {
+    await widget.sb
+        .from('solicitudes_amigo')
+        .update({'estado': accept ? 'aceptada' : 'rechazada'})
+        .eq('id', id);
+  }
 
   Future<void> _notifyParent() async {
     if (widget.onChanged != null) {
@@ -838,7 +1392,7 @@ class _RequestsListState extends State<_RequestsList> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _svc.myIncoming(),
+      future: widget.fetch(),
       builder: (_, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
@@ -859,8 +1413,7 @@ class _RequestsListState extends State<_RequestsList> {
             itemBuilder: (ctx, i) {
               final r = reqs[i];
               final em = r['emisor'] as Map<String, dynamic>;
-              final fotos =
-              List<String>.from((em['perfiles']?['fotos'] ?? []));
+              final fotos = List<String>.from((em['perfiles']?['fotos'] ?? []));
               final avatar = fotos.isNotEmpty
                   ? (fotos.first.startsWith('http')
                   ? fotos.first
@@ -884,20 +1437,16 @@ class _RequestsListState extends State<_RequestsList> {
                   ],
                 ),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   leading: CircleAvatar(
                     radius: 26,
                     backgroundColor: accent.withOpacity(0.2),
-                    backgroundImage:
-                    avatar != null ? NetworkImage(avatar) : null,
+                    backgroundImage: avatar != null ? NetworkImage(avatar) : null,
                     child: avatar == null
-                        ? const Icon(Icons.person,
-                        color: accent, size: 28)
+                        ? const Icon(Icons.person, color: accent, size: 28)
                         : null,
                   ),
-                  title: Text(em['nombre'],
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  title: Text(em['nombre'], style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: const Text('quiere conectar contigo'),
                   trailing: Wrap(
                     spacing: 8,
@@ -905,41 +1454,33 @@ class _RequestsListState extends State<_RequestsList> {
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: Colors.redAccent),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           padding: const EdgeInsets.all(0),
                         ),
                         onPressed: () async {
-                          await _svc.respond(r['id'], false);
+                          await _respond(r['id'] as String, false);
                           setState(() {});
                           await _notifyParent();
                         },
-                        child: const Icon(Icons.close,
-                            color: Colors.redAccent),
+                        child: const Icon(Icons.close, color: Colors.redAccent),
                       ),
                       FilledButton(
                         style: FilledButton.styleFrom(
                           backgroundColor: accent,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           padding: const EdgeInsets.all(0),
                         ),
                         onPressed: () async {
-                          // Aceptar SIN crear chat automáticamente
-                          await _svc.respond(r['id'], true);
+                          await _respond(r['id'] as String, true);
                           setState(() {});
                           await _notifyParent();
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                    'Solicitud aceptada. Inicia un chat desde la pestaña Mensajes.'),
-                              ),
+                              const SnackBar(content: Text('Solicitud aceptada. ¡Ya sois amigos!')),
                             );
                           }
                         },
-                        child:
-                        const Icon(Icons.check, color: Colors.white),
+                        child: const Icon(Icons.check, color: Colors.white),
                       ),
                     ],
                   ),
@@ -947,6 +1488,90 @@ class _RequestsListState extends State<_RequestsList> {
               );
             },
           ),
+        );
+      },
+    );
+  }
+}
+
+class _SegTab extends StatelessWidget {
+  final String text;
+  final bool selected;
+  final VoidCallback onTap;
+  const _SegTab({required this.text, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: selected
+                ? [BoxShadow(color: Colors.black.withOpacity(.06), blurRadius: 8, offset: const Offset(0, 3))]
+                : null,
+          ),
+          child: Center(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: selected ? Colors.black87 : Colors.black.withOpacity(.6),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Panel “Mi código” (si aún no lo tienes, usa este placeholder bonito)
+class _MyCodePanel extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, String?>>(
+      future: FriendRequestService.instance.myCode(), // { 'code': 'ABCD-1234', 'link': 'chillroom://add-friend?c=ABCD-1234' }
+      builder: (_, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final data = snap.data ?? const {'code': null, 'link': null};
+        final code = data['code'] ?? '----';
+        final link = data['link'] ?? '';
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text('Tu código', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: SelectableText(code,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
+            ),
+            const SizedBox(height: 12),
+            if (link.isNotEmpty)
+              OutlinedButton.icon(
+                icon: const Icon(Icons.link),
+                label: const Text('Compartir enlace'),
+                onPressed: () async {
+                  await FriendRequestService.instance.shareText(link);
+                },
+              ),
+          ],
         );
       },
     );

@@ -1,118 +1,273 @@
 // lib/services/reward_ads_service.dart
 import 'dart:async';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform, kIsWeb;
-import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:stack_appodeal_flutter/stack_appodeal_flutter.dart';
 
+/// Servicio centrado en Rewarded + Interstitial de Appodeal
+/// - Mantiene caché manual (autocache desactivado)
+/// - Expone los mismos métodos que ya usa tu UI: preload() y showRewardedAd()
 class RewardAdsService {
   RewardAdsService._();
   static final instance = RewardAdsService._();
 
-  // ⚠️ Tu bloque de anuncio recompensado (Android)
-  static const String _rewardedUnitAndroid = 'ca-app-pub-8588628678375129/8215251849';
-  // Si más adelante usas iOS, define su ID aquí:
-  static const String _rewardedUnitIOS = 'YOUR_IOS_REWARDED_UNIT_ID';
+  bool _sdkReady = false;
+  bool _initInProgress = false;
 
-  RewardedAd? _rewarded;
-  bool _isLoading = false;
-  bool _sdkInited = false;
+  // Flags de cache
+  bool _rewardedLoaded = false;
+  bool _interstitialLoaded = false;
 
-  // Solo soportado en Android/iOS nativos (no Web ni Desktop)
+  // Soporte de plataforma
   bool get _adsSupported =>
       !kIsWeb &&
           (defaultTargetPlatform == TargetPlatform.android ||
               defaultTargetPlatform == TargetPlatform.iOS);
 
-  String get _unitId {
-    if (defaultTargetPlatform == TargetPlatform.iOS) return _rewardedUnitIOS;
-    return _rewardedUnitAndroid;
-  }
+  /// Llama una vez al arrancar la app (p.ej. en main.dart)
+  Future<void> ensureInitialized({
+    required String appodealAppKey,
+    bool testing = false,
+    bool verboseLogs = true,
+  }) async {
+    if (!_adsSupported) return;
+    if (_sdkReady || _initInProgress) return;
 
-  Future<void> _ensureInit() async {
-    if (!_adsSupported) return; // Evita MissingPlugin en PC/web
-    if (_sdkInited) return;
+    _initInProgress = true;
     try {
-      await MobileAds.instance.initialize();
-      _sdkInited = true;
-    } catch (_) {
-      // Si el plugin no está disponible en este build/plataforma, no romper el arranque
-      _sdkInited = false;
-    }
-  }
+      // Config global: desactivar autocache para controlar manualmente
+      Appodeal.setAutoCache(AppodealAdType.Interstitial, false);
+      Appodeal.setAutoCache(AppodealAdType.RewardedVideo, false);
 
-  /// 🔹 Precarga el anuncio recompensado en memoria
-  Future<void> preload() async {
-    if (!_adsSupported) return; // <-- clave para PC
-    await _ensureInit();
-    if (!_sdkInited) return;
+      // Modo test y logs
+      Appodeal.setTesting(testing);
+      Appodeal.setLogLevel(verboseLogs ? Appodeal.LogLevelVerbose : Appodeal.LogLevelNone);
 
-    if (_rewarded != null || _isLoading) return;
-    _isLoading = true;
+      // Callbacks persistentes (mantienen estados de cache)
+      _attachPersistentRewardedCallbacks();
+      _attachPersistentInterstitialCallbacks();
 
-    try {
-      await RewardedAd.load(
-        adUnitId: _unitId,
-        request: const AdRequest(),
-        rewardedAdLoadCallback: RewardedAdLoadCallback(
-          onAdLoaded: (ad) {
-            _rewarded = ad;
-            _isLoading = false;
-          },
-          onAdFailedToLoad: (err) {
-            _rewarded = null;
-            _isLoading = false;
-            // Reintenta tras 10 segundos
-            Future.delayed(const Duration(seconds: 10), preload);
-          },
-        ),
+      // Inicializar SDK
+      await Appodeal.initialize(
+        appKey: appodealAppKey,
+        adTypes: const [
+          AppodealAdType.Interstitial,
+          AppodealAdType.RewardedVideo,
+        ],
+        onInitializationFinished: (errors) {
+          // Puedes loggear 'errors' si quieres
+        },
       );
-    } catch (_) {
-      // Si algo va mal (plugin ausente, etc.), no lances excepción en PC
-      _rewarded = null;
-      _isLoading = false;
+
+      _sdkReady = true;
+
+      // Precargar ambos formatos
+      cacheRewarded();
+      cacheInterstitial();
+    } finally {
+      _initInProgress = false;
     }
   }
 
-  /// 🔹 Muestra el anuncio y devuelve true si el usuario ganó la recompensa
-  Future<bool> showRewardedAd() async {
-    if (!_adsSupported) return false; // <-- clave para PC
-    await _ensureInit();
-    if (!_sdkInited) return false;
+  // ------------------ REWARDED ------------------
 
-    if (_rewarded == null) {
-      await preload();
-      if (_rewarded == null) return false;
+  void _attachPersistentRewardedCallbacks() {
+    Appodeal.setRewardedVideoCallbacks(
+      onRewardedVideoLoaded: (isPrecache) {
+        _rewardedLoaded = true;
+      },
+      onRewardedVideoFailedToLoad: () {
+        _rewardedLoaded = false;
+      },
+      onRewardedVideoShown: () {},
+      onRewardedVideoShowFailed: () {
+        _rewardedLoaded = false;
+      },
+      onRewardedVideoFinished: (amount, reward) {
+        // La recompensa “de verdad” la resolvemos en showRewardedAd mediante callbacks temporales.
+      },
+      onRewardedVideoClosed: (isFinished) {
+        // Tras cierre: invalida flag y recachea
+        _rewardedLoaded = false;
+        cacheRewarded();
+      },
+      onRewardedVideoExpired: () {
+        _rewardedLoaded = false;
+      },
+      onRewardedVideoClicked: () {},
+    );
+  }
+
+  /// Hace cache del Rewarded
+  void cacheRewarded() {
+    if (!_adsSupported || !_sdkReady) return;
+    if (!_rewardedLoaded) {
+      Appodeal.cache(AppodealAdType.RewardedVideo);
     }
+  }
+
+  /// Espera hasta que el Rewarded esté listo (con timeout)
+  Future<bool> _ensureRewardedReady({Duration timeout = const Duration(seconds: 8)}) async {
+    if (!_adsSupported || !_sdkReady) return false;
+    if (_rewardedLoaded) return true;
+
+    cacheRewarded();
+    final sw = Stopwatch()..start();
+    while (!_rewardedLoaded && sw.elapsed < timeout) {
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+    return _rewardedLoaded;
+  }
+
+  /// API usada por tu UI actual. Devuelve true si el usuario ganó la recompensa
+  Future<bool> showRewardedAd() async {
+    if (!_adsSupported || !_sdkReady) return false;
+    if (!await _ensureRewardedReady()) return false;
 
     final completer = Completer<bool>();
-    bool rewarded = false;
+    var rewarded = false;
 
-    _rewarded!.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        _rewarded = null;
-        preload(); // vuelve a precargar
+    // Callbacks temporales solo para esta presentación
+    Appodeal.setRewardedVideoCallbacks(
+      onRewardedVideoLoaded: (isPrecache) {
+        _rewardedLoaded = true;
+      },
+      onRewardedVideoFailedToLoad: () {
+        _rewardedLoaded = false;
+      },
+      onRewardedVideoShown: () {},
+      onRewardedVideoShowFailed: () {
+        _rewardedLoaded = false;
+        if (!completer.isCompleted) completer.complete(false);
+      },
+      onRewardedVideoFinished: (amount, reward) {
+        rewarded = true;
+      },
+      onRewardedVideoClosed: (isFinished) {
+        _rewardedLoaded = false;
+        cacheRewarded(); // recachear para siguiente
         if (!completer.isCompleted) completer.complete(rewarded);
       },
-      onAdFailedToShowFullScreenContent: (ad, err) {
-        ad.dispose();
-        _rewarded = null;
-        preload();
+      onRewardedVideoExpired: () {
+        _rewardedLoaded = false;
+      },
+      onRewardedVideoClicked: () {},
+    );
+
+    // Mostrar
+    Appodeal.show(AppodealAdType.RewardedVideo);
+
+    // Timeout de seguridad
+    Future.delayed(const Duration(seconds: 30), () {
+      if (!completer.isCompleted) completer.complete(false);
+    });
+
+    final ok = await completer.future;
+
+    // Restaurar callbacks persistentes
+    _attachPersistentRewardedCallbacks();
+
+    return ok;
+  }
+
+  // ------------------ INTERSTITIAL ------------------
+
+  void _attachPersistentInterstitialCallbacks() {
+    Appodeal.setInterstitialCallbacks(
+      onInterstitialLoaded: (isPrecache) {
+        _interstitialLoaded = true;
+      },
+      onInterstitialFailedToLoad: () {
+        _interstitialLoaded = false;
+      },
+      onInterstitialShown: () {},
+      onInterstitialShowFailed: () {
+        _interstitialLoaded = false;
+      },
+      onInterstitialClicked: () {},
+      onInterstitialClosed: () {
+        _interstitialLoaded = false;
+        cacheInterstitial();
+      },
+      onInterstitialExpired: () {
+        _interstitialLoaded = false;
+      },
+    );
+  }
+
+  /// Hace cache del Interstitial
+  void cacheInterstitial() {
+    if (!_adsSupported || !_sdkReady) return;
+    if (!_interstitialLoaded) {
+      Appodeal.cache(AppodealAdType.Interstitial);
+    }
+  }
+
+  Future<bool> _ensureInterstitialReady({Duration timeout = const Duration(seconds: 6)}) async {
+    if (!_adsSupported || !_sdkReady) return false;
+    if (_interstitialLoaded) return true;
+
+    cacheInterstitial();
+    final sw = Stopwatch()..start();
+    while (!_interstitialLoaded && sw.elapsed < timeout) {
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+    return _interstitialLoaded;
+  }
+
+  /// Útil si quieres mostrar interstitial bajo ciertas condiciones (cada 5 swipes, etc.)
+  Future<bool> showInterstitial() async {
+    if (!_adsSupported || !_sdkReady) return false;
+    if (!await _ensureInterstitialReady()) return false;
+
+    final completer = Completer<bool>();
+    var opened = false;
+
+    Appodeal.setInterstitialCallbacks(
+      onInterstitialLoaded: (isPrecache) {
+        _interstitialLoaded = true;
+      },
+      onInterstitialFailedToLoad: () {
+        _interstitialLoaded = false;
         if (!completer.isCompleted) completer.complete(false);
+      },
+      onInterstitialShown: () {
+        opened = true;
+      },
+      onInterstitialShowFailed: () {
+        _interstitialLoaded = false;
+        if (!completer.isCompleted) completer.complete(false);
+      },
+      onInterstitialClicked: () {},
+      onInterstitialClosed: () {
+        _interstitialLoaded = false;
+        cacheInterstitial();
+        if (!completer.isCompleted) completer.complete(opened);
+      },
+      onInterstitialExpired: () {
+        _interstitialLoaded = false;
       },
     );
 
-    try {
-      _rewarded!.setImmersiveMode(true);
-      await _rewarded!.show(onUserEarnedReward: (ad, reward) {
-        rewarded = true;
-      });
-    } catch (_) {
-      _rewarded?.dispose();
-      _rewarded = null;
-      preload();
-      if (!completer.isCompleted) completer.complete(false);
-    }
+    Appodeal.show(AppodealAdType.Interstitial);
 
-    return completer.future;
+    // Timeout de seguridad
+    Future.delayed(const Duration(seconds: 20), () {
+      if (!completer.isCompleted) completer.complete(false);
+    });
+
+    final ok = await completer.future;
+
+    // Restaurar callbacks persistentes
+    _attachPersistentInterstitialCallbacks();
+
+    return ok;
+  }
+
+  // ------------------ API que ya usas en HomeScreen ------------------
+
+  /// Tu `home_screen` llama a preload(): aquí precargamos ambos
+  Future<void> preload() async {
+    cacheRewarded();
+    cacheInterstitial();
   }
 }
