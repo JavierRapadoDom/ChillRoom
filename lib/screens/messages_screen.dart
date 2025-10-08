@@ -1,5 +1,4 @@
 // lib/screens/messages_screen.dart
-import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,6 +7,7 @@ import '../services/chat_service.dart';
 import '../services/friend_request_service.dart';
 import '../widgets/app_menu.dart';
 import 'chat_detail_screen.dart';
+import 'community_screen.dart';
 import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'profile_screen.dart';
@@ -35,6 +35,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   // Solicitudes pendientes -> badge
   int _pendingCount = 0;
+
+  // 👇 Realtime mensajes
+  RealtimeChannel? _msgsRt;
 
   void _openAddFriendModalWithPrefill(String code) {
     // Abre el modal de “Añadir amigo” con el código precargado en la pestaña 2
@@ -300,40 +303,100 @@ class _MessagesScreenState extends State<MessagesScreen> {
     _loadChats();
     _refreshPendingCount();
     _searchCtrl.addListener(_onSearchChanged);
-    @override
-    void didChangeDependencies() {
-      super.didChangeDependencies();
-      final args = ModalRoute.of(context)?.settings.arguments;
-      if (args is Map && (args['openAddFriend'] == true || args['friendCode'] != null)) {
-        // Abre el modal con la pestaña de "Introducir código"
-        final String? code = args['friendCode'] as String?;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _openAddFriendModalWithPrefill(code ?? ''); // ← ya lo tenías implementado
-        });
-      }
-    }
+
+    // 👇 suscripción Realtime para refrescar lista al vuelo
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
     _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
+    _unsubscribeRealtime();
     super.dispose();
   }
 
-  void _onSearchChanged() {
+  // ====== REALTIME MENSAJES ======
+  void _subscribeRealtime() {
+    try {
+      _msgsRt?.unsubscribe();
+    } catch (_) {}
+
+    _msgsRt = _sb
+        .channel('public:mensajes:inbox')
+        .onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'mensajes',
+      callback: (payload) async {
+        final me = _sb.auth.currentUser?.id;
+        if (me == null) return;
+
+        final row = payload.newRecord as Map<String, dynamic>?;
+        if (row == null) return;
+
+        final emisor = row['emisor_id'] as String?;
+        final receptor = row['receptor_id'] as String?;
+        final chatId = row['chat_id'] as String?;
+        if (chatId == null) return;
+
+        // Asegura que el mensaje tenga que ver conmigo
+        final mine = (emisor == me) || (receptor == me);
+        if (!mine) return;
+
+        // Si el chat ya está en la lista, actualiza preview + unread y súbelo arriba
+        final idx = _allChats.indexWhere((c) => c['chatId'] == chatId);
+        if (idx >= 0) {
+          final isUnread = (emisor != me); // si lo envió otro, es no leído
+          final updated = Map<String, dynamic>.from(_allChats[idx]);
+          updated['lastMsg'] = {
+            'id': row['id'],
+            'emisor_id': emisor,
+            'receptor_id': receptor,
+            'mensaje': row['mensaje'],
+            'visto': row['visto'],
+            'created_at': row['created_at'],
+          };
+          updated['unread'] = isUnread;
+
+          setState(() {
+            _allChats.removeAt(idx);
+            _allChats.insert(0, updated);
+            _applyFilter(); // respeta el término de búsqueda activo
+          });
+          return;
+        }
+
+        // Si aún no lo tenemos (p. ej., chat recién creado), recarga lista
+        await _loadChats();
+      },
+    )
+        .subscribe();
+  }
+
+  void _unsubscribeRealtime() {
+    try {
+      if (_msgsRt != null) {
+        _sb.removeChannel(_msgsRt!);
+        _msgsRt = null;
+      }
+    } catch (_) {}
+  }
+
+  void _applyFilter() {
     final term = _searchCtrl.text.trim().toLowerCase();
     if (term.isEmpty) {
-      setState(() => _filteredChats = List.from(_allChats));
+      _filteredChats = List.from(_allChats);
     } else {
-      setState(() {
-        _filteredChats = _allChats.where((c) {
-          final name = (c['partner']['nombre'] as String).toLowerCase();
-          return name.startsWith(term);
-        }).toList();
-      });
+      _filteredChats = _allChats.where((c) {
+        final name = (c['partner']['nombre'] as String).toLowerCase();
+        return name.startsWith(term);
+      }).toList();
     }
+  }
+
+  void _onSearchChanged() {
+    setState(_applyFilter);
   }
 
   Future<void> _refreshPendingCount() async {
@@ -441,7 +504,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       if (!mounted) return;
       setState(() {
         _allChats = chats;
-        _filteredChats = List.from(chats);
+        _applyFilter();
       });
     } catch (e) {
       if (!mounted) return;
@@ -661,7 +724,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       if (!mounted) return;
       setState(() {
         _allChats.removeWhere((c) => c['chatId'] == chatId);
-        _filteredChats.removeWhere((c) => c['chatId'] == chatId);
+        _applyFilter();
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -805,7 +868,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                             setState(() {
                               _isSearching = false;
                               _searchCtrl.clear();
-                              _filteredChats = List.from(_allChats);
+                              _applyFilter();
                             });
                           },
                         ),

@@ -1,4 +1,4 @@
-import 'package:chillroom/screens/community_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,12 +7,14 @@ import '../services/friend_request_service.dart';
 import '../services/chat_service.dart';
 import '../services/swipe_service.dart';
 
+import '../widgets/report_user_sheet.dart';
+import 'community_screen.dart';
 import 'home_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'chat_detail_screen.dart';
 import 'piso_details_screen.dart';
-import 'package:chillroom/widgets/report_user_sheet.dart';
+
 
 // NUEVO
 import '../widgets/super_interest_theme.dart';

@@ -47,6 +47,35 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
+  bool _looksLikeInvalidCredentials(String msg) {
+    final m = msg.toLowerCase();
+    return m.contains('invalid') ||
+        m.contains('contraseña') ||
+        m.contains('password') ||
+        m.contains('credencial');
+  }
+
+  Future<void> _showErrorDialog({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
@@ -58,6 +87,18 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (error != null) {
       setState(() => _isLoading = false);
+
+      // Si el backend nos da un mensaje de credenciales inválidas, mostramos DIÁLOGO
+      if (_looksLikeInvalidCredentials(error)) {
+        await _showErrorDialog(
+          title: 'Contraseña incorrecta',
+          message:
+          'La contraseña que has introducido no es correcta. Por favor, revísala y vuelve a intentarlo.',
+        );
+        return;
+      }
+
+      // Otros errores (conectividad, servidor, etc.) -> SnackBar
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
@@ -171,8 +212,7 @@ class _LoginScreenState extends State<LoginScreen>
                                       hint: 'Contraseña',
                                       icon: Icons.lock_outline,
                                       obscureText: _ocultarPass,
-                                      validator: (v) => (v != null &&
-                                          v.length >= 6)
+                                      validator: (v) => (v != null && v.length >= 6)
                                           ? null
                                           : 'Mínimo 6 caracteres',
                                       suffixIcon: IconButton(
@@ -218,7 +258,8 @@ class _LoginScreenState extends State<LoginScreen>
                                       children: [
                                         _SocialButton(
                                           asset: 'assets/botonGoogle.png',
-                                          onTap: _authService.iniciarSesionGoogle,
+                                          onTap:
+                                          _authService.iniciarSesionGoogle,
                                         ),
                                         const SizedBox(width: 14),
                                         _SocialButton(
@@ -255,9 +296,9 @@ class _LoginScreenState extends State<LoginScreen>
                                       decoration: TextDecoration.underline,
                                     ),
                                     recognizer: TapGestureRecognizer()
-                                      ..onTap = () =>
-                                          Navigator.pushReplacementNamed(
-                                              context, '/register'),
+                                      ..onTap = () => Navigator
+                                          .pushReplacementNamed(
+                                          context, '/register'),
                                   ),
                                 ],
                               ),

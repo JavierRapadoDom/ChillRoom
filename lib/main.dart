@@ -1,6 +1,7 @@
 // lib/main.dart
 import 'dart:async';
-import 'package:chillroom/screens/community_screen.dart';
+
+import 'package:Chillroom/screens/community_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -19,6 +20,12 @@ import 'screens/welcome_screen.dart';
 import 'screens/piso_details_screen.dart';
 import 'screens/messages_screen.dart';
 import 'services/reward_ads_service.dart';
+import 'services/one_signal_push_service.dart';
+// 👇 notificaciones locales
+import 'services/local_notifications_service.dart';
+
+// 👇 solo lo usamos para diagnósticos rápidos de suscripción
+import 'package:onesignal_flutter/onesignal_flutter.dart' show OneSignal;
 
 class NoAnimationPageTransitionsBuilder extends PageTransitionsBuilder {
   const NoAnimationPageTransitionsBuilder();
@@ -30,26 +37,86 @@ class NoAnimationPageTransitionsBuilder extends PageTransitionsBuilder {
       Animation<double> animation,
       Animation<double> secondaryAnimation,
       Widget child,
-      ) => child;
+      ) =>
+      child;
 }
 
-// 👇 clave global para navegar desde deep links
+// 👇 clave global para navegar desde deep links, notificaciones locales y OneSignal
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initSupabase();
 
-
+  // Appodeal (anuncios)
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
     await RewardAdsService.instance.ensureInitialized(
-      appodealAppKey: '290d0d47aa44bcfcf92338a428f4d76819a1b528064ccb7b', // <-- pon tu App Key real
-      testing: true,     // cámbialo a false cuando pases a prod
-      verboseLogs: true, // logs verbosos mientras integras
+      appodealAppKey: '290d0d47aa44bcfcf92338a428f4d76819a1b528064ccb7b',
+      testing: true, // cámbialo a false en producción
+      verboseLogs: true,
     );
   }
+
+  // OneSignal (push) — SOLO móvil
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    await OneSignalPushService.instance.init(
+      appId: '5429ea3d-83fb-4b56-b320-581d3fdce719',
+      navigatorKey: navigatorKey,
+      requireUserPrivacyConsent: false,
+      logVerbose: true,
+    );
+
+    // (A) Vincula el dispositivo si ya hay sesión al arrancar
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    if (currentUser != null) {
+      await OneSignalPushService.instance.setExternalUserId(currentUser.id);
+    }
+
+    // (B) MUY IMPORTANTE: escucha cambios de sesión para (des)vincular en el momento correcto
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+      final event = data.event;
+      final session = data.session;
+
+      if (event == AuthChangeEvent.signedIn && session?.user != null) {
+        await OneSignalPushService.instance.setExternalUserId(session!.user.id);
+      } else if (event == AuthChangeEvent.signedOut) {
+        await OneSignalPushService.instance.clearExternalUserId();
+      }
+    });
+
+    // (C) Diagnóstico & recuperación: si el dispositivo está "unsubscribed", intentamos re-optar
+    try {
+      final pushSub = OneSignal.User.pushSubscription;
+      // Estos campos son síncronos en v5
+      // ignore: avoid_print
+      print('[OneSignal] pushSubscription id=${pushSub.id} optedIn=${pushSub.optedIn}');
+
+      // Si NO está suscrito, intentamos recuperar: pedir permiso + optIn
+      if (pushSub.optedIn != true) {
+        // Pide permiso del sistema (iOS / Android 13+)
+        final granted = await OneSignal.Notifications.requestPermission(true);
+        // ignore: avoid_print
+        print('[OneSignal] requestPermission -> $granted');
+
+        // Si sigue sin estar optedIn, forzamos optIn (v5 expone optIn/optOut)
+        if (OneSignal.User.pushSubscription.optedIn != true) {
+          await OneSignal.User.pushSubscription.optIn();
+          // ignore: avoid_print
+          print('[OneSignal] forced optIn called');
+        }
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[OneSignal] diagnostics failed: $e');
+    }
+  }
+
+  // Notificaciones locales (permiso iOS/Android 13+, tz y handler de taps)
+  await LocalNotificationsService.instance.init(navigatorKey: navigatorKey);
 
   runApp(const MyApp());
 }
@@ -126,26 +193,26 @@ class _MyAppState extends State<MyApp> {
         scaffoldBackgroundColor: Colors.white,
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
-            TargetPlatform.android : noAnimBuilder,
-            TargetPlatform.iOS     : noAnimBuilder,
-            TargetPlatform.linux   : noAnimBuilder,
-            TargetPlatform.macOS   : noAnimBuilder,
-            TargetPlatform.windows : noAnimBuilder,
+            TargetPlatform.android: noAnimBuilder,
+            TargetPlatform.iOS: noAnimBuilder,
+            TargetPlatform.linux: noAnimBuilder,
+            TargetPlatform.macOS: noAnimBuilder,
+            TargetPlatform.windows: noAnimBuilder,
           },
         ),
         colorScheme: ColorScheme.fromSeed(seedColor: accent),
       ),
       initialRoute: initialRoute,
       routes: {
-        '/register'    : (_) => RegisterScreen(),
-        '/login'       : (_) => LoginScreen(),
-        '/choose-role' : (_) => const ChooseRoleScreen(),
-        '/home'        : (_) => const HomeScreen(),
-        '/profile'     : (_) => const ProfileScreen(),
-        '/welcome'     : (_) => const WelcomeScreen(),
-        '/age'         : (_) => const EdadScreen(),
-        '/community'   : (_) => const CommunityScreen(),
-        '/messages'    : (_) => const MessagesScreen(),
+        '/register': (_) => RegisterScreen(),
+        '/login': (_) => LoginScreen(),
+        '/choose-role': (_) => const ChooseRoleScreen(),
+        '/home': (_) => const HomeScreen(),
+        '/profile': (_) => const ProfileScreen(),
+        '/welcome': (_) => const WelcomeScreen(),
+        '/age': (_) => const EdadScreen(),
+        '/community': (_) => const CommunityScreen(),
+        '/messages': (_) => const MessagesScreen(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/flat-detail') {

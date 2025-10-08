@@ -11,7 +11,6 @@ import 'user_details_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 
-
 class PostDetailScreen extends StatefulWidget {
   final String postId;
   const PostDetailScreen({super.key, required this.postId});
@@ -166,8 +165,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-
-// --- FOLLOW / UNFOLLOW AUTHOR ---
+  // --- FOLLOW / UNFOLLOW AUTHOR ---
   Future<bool> _isFollowing(String authorId) async {
     final uid = _supabase.auth.currentUser!.id;
     if (uid == authorId) return false;
@@ -212,7 +210,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-// --- SHARE / COPY / REPORT ---
+  // --- SHARE / COPY / REPORT ---
   Future<void> _sharePost() async {
     if (_post == null) return;
     final url = _publicUrlForShare(_post!.id); // ajusta a tu deep-link
@@ -252,8 +250,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       );
     }
   }
-
-
 
   // ---------- COMMENTS (asc, paginación) ----------
   Future<void> _loadMoreComments() async {
@@ -330,7 +326,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       byId.update(
         uid,
             (prev) => prev.copyWith(avatarUrl: fotos.isNotEmpty ? fotos.first : null),
-        ifAbsent: () => _Profile(id: uid, nombre: null, avatarUrl: fotos.isNotEmpty ? fotos.first : null),
+        ifAbsent: () =>
+            _Profile(id: uid, nombre: null, avatarUrl: fotos.isNotEmpty ? fotos.first : null),
       );
     }
     return byId;
@@ -394,8 +391,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             .from('community_post_likes')
             .upsert({'post_id': p.id, 'user_id': uid}, onConflict: 'post_id,user_id')
             .select();
+
+        // ✅ Notificación al autor (si no soy yo)
+        if (p.authorId != uid) {
+          try {
+            await _supabase.functions.invoke(
+              'notify-post-like',
+              body: {
+                'receiver_id': p.authorId,
+                'sender_id': uid,
+                'post_id': p.id,
+              },
+            );
+          } catch (_) {
+            // No romper la UX si falla la notificación
+          }
+        }
       } else {
-        await _supabase.from('community_post_likes').delete().eq('post_id', p.id).eq('user_id', uid);
+        await _supabase
+            .from('community_post_likes')
+            .delete()
+            .eq('post_id', p.id)
+            .eq('user_id', uid);
       }
     } catch (e) {
       if (!mounted) return;
@@ -443,6 +460,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _cursorIso = newC.createdAt.toIso8601String();
         _replyTo = null;
       });
+
+      // ✅ Notificar al autor del post (si no soy yo)
+      try {
+        if (_post!.authorId != uid) {
+          await _supabase.functions.invoke(
+            'notify-post-comment',
+            body: {
+              'receiver_id': _post!.authorId,
+              'sender_id': uid,
+              'post_id': _post!.id,
+              'comment': txt,
+            },
+          );
+        }
+      } catch (_) {
+        // Silenciar error de notificación
+      }
 
       // Autoscroll al final
       await Future.delayed(const Duration(milliseconds: 50));
@@ -743,13 +777,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             children: [
                               if (_replyTo != null)
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 6, right: 6, bottom: 6),
+                                  padding:
+                                  const EdgeInsets.only(left: 6, right: 6, bottom: 6),
                                   child: Row(
                                     children: [
                                       Expanded(
                                         child: Text(
                                           'Respondiendo a ${_replyTo!.author?.nombre ?? 'Usuario'}',
-                                          style: const TextStyle(fontWeight: FontWeight.w700),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700),
                                         ),
                                       ),
                                       IconButton(
@@ -772,13 +808,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                       textInputAction: TextInputAction.send,
                                       onSubmitted: (_) => _sendComment(),
                                       onChanged: (val) {
-                                        final sel = _commentCtrl.selection.baseOffset;
-                                        final text = val.substring(0, sel < 0 ? val.length : sel);
+                                        final sel =
+                                            _commentCtrl.selection.baseOffset;
+                                        final text = val.substring(
+                                            0, sel < 0 ? val.length : sel);
                                         final at = text.lastIndexOf('@');
-                                        if (at >= 0 && (at == 0 || text[at - 1] == ' ')) {
+                                        if (at >= 0 &&
+                                            (at == 0 || text[at - 1] == ' ')) {
                                           final q = text.substring(at + 1);
-                                          final stopChars = RegExp(r'[\s.,;:!?()\[\]{}]');
-                                          if (q.isEmpty || stopChars.hasMatch(q)) {
+                                          final stopChars =
+                                          RegExp(r'[\s.,;:!?()\[\]{}]');
+                                          if (q.isEmpty ||
+                                              stopChars.hasMatch(q)) {
                                             _hideMentionOverlay();
                                           } else {
                                             _mentionQuery = q;
@@ -791,8 +832,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                       decoration: const InputDecoration(
                                         hintText: 'Añade un comentario…',
                                         border: InputBorder.none,
-                                        contentPadding:
-                                        EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 8),
                                       ),
                                     ),
                                   ),
@@ -803,7 +844,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                         ? const SizedBox(
                                       height: 18,
                                       width: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
                                     )
                                         : const Icon(Icons.send_rounded),
                                     label: const Text('Enviar'),
@@ -813,7 +855,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 14, vertical: 12),
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
+                                        borderRadius:
+                                        BorderRadius.circular(10),
                                       ),
                                       elevation: 0,
                                     ),
@@ -1502,9 +1545,9 @@ class _Post {
   int commentCount;
   bool youLike;
   _Profile? author;
-  bool youSave = false;        // ← user guardó este post
+  bool youSave = false; // ← user guardó este post
   bool youFollowAuthor = false; // ← user sigue al autor
-  int saveCount;               // opcional, si no existe en DB, deja 0
+  int saveCount; // opcional, si no existe en DB, deja 0
 
   _Post({
     required this.id,
@@ -1664,7 +1707,8 @@ class _MoreActionsButton extends StatelessWidget {
             children: [
               ListTile(
                 leading: Icon(youFollow ? Icons.person_remove_alt_1 : Icons.person_add_alt_1),
-                title: Text(youFollow ? 'Dejar de seguir a ${post.author?.nombre ?? 'autor'}'
+                title: Text(youFollow
+                    ? 'Dejar de seguir a ${post.author?.nombre ?? 'autor'}'
                     : 'Seguir a ${post.author?.nombre ?? 'autor'}'),
                 onTap: () async {
                   Navigator.pop(context);
@@ -1704,7 +1748,6 @@ class _MoreActionsButton extends StatelessWidget {
     );
   }
 }
-
 
 class _Avatar extends StatelessWidget {
   final String? url;

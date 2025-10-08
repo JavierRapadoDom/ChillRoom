@@ -1,14 +1,16 @@
 // lib/screens/favorites_screen.dart
-import 'package:chillroom/screens/community_screen.dart';
+
+import 'package:Chillroom/screens/piso_details_screen.dart';
+import 'package:Chillroom/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/favorite_service.dart';
 import '../widgets/app_menu.dart';
-import 'package:chillroom/screens/home_screen.dart';
-import 'package:chillroom/screens/messages_screen.dart';
-import 'package:chillroom/screens/profile_screen.dart';
-import 'package:chillroom/screens/piso_details_screen.dart';
+import 'community_screen.dart';
+import 'home_screen.dart';
+import 'messages_screen.dart';
+
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({Key? key}) : super(key: key);

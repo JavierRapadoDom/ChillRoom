@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:chillroom/services/feedback_service.dart';
+
+import '../services/feedback_service.dart';
+
 
 class FeedbackSheet {
   static const _accent = Color(0xFFE3A62F);

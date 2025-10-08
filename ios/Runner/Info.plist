@@ -67,6 +67,13 @@
         </array>
       </dict>
     </array>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>processing</string>
+      <string>fetch</string>
+    </array>
+    <key>NSUserNotificationUsageDescription</key>
+    <string>Esta app quiere enviarte notificaciones.</string>
 
 
 

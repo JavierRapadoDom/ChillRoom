@@ -367,18 +367,35 @@ class _CommunityScreenState extends State<CommunityScreen>
     });
 
     try {
+      final uid = _supabase.auth.currentUser!.id;
+
       if (!liked) {
         await _supabase.from('community_post_likes').insert({
           'post_id': p.id,
-          'user_id': _supabase.auth.currentUser!.id,
+          'user_id': uid,
         });
+
+        // ✅ Edge Function: notificar like al autor (si no soy yo)
+        if (p.authorId != uid) {
+          try {
+            await _supabase.functions.invoke(
+              'notify-post-like',
+              body: {
+                'receiver_id': p.authorId,
+                'sender_id': uid,
+                'post_id': p.id,
+              },
+            );
+          } catch (_) {/* silenciar errores de notificación */}
+        }
       } else {
         await _supabase
             .from('community_post_likes')
             .delete()
             .eq('post_id', p.id)
-            .eq('user_id', _supabase.auth.currentUser!.id);
+            .eq('user_id', uid);
       }
+
       await _refreshCountsFromDb(p.id);
     } catch (_) {
       if (!mounted) return;
@@ -456,6 +473,23 @@ class _CommunityScreenState extends State<CommunityScreen>
         .select()
         .single();
 
+    // ✅ Edge Function: notificar nueva publicación (fanout / indexación / moderación)
+    try {
+      await _supabase.functions.invoke(
+        'notify-new-post',
+        body: {
+          'post_id': insert['id'],
+          'author_id': uid,
+          'title': title,
+          'category': category,
+          'tags': tags,
+          'theme_id': payload['theme_id'],
+        },
+      );
+    } catch (_) {
+      // no bloquear la publicación si falla la función
+    }
+
     if (!mounted) return;
 
     final newPost = _Post.fromMap(insert, _publicUrl);
@@ -468,8 +502,6 @@ class _CommunityScreenState extends State<CommunityScreen>
       const SnackBar(content: Text('Publicado en Comunidad')),
     );
   }
-
-
 
   String _randomSuffix() =>
       (DateTime.now().microsecondsSinceEpoch % 1000000).toString();
@@ -637,22 +669,22 @@ class _CommunityScreenState extends State<CommunityScreen>
                           ),
                         ),
                         const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: kCategories.contains(selectedCat) ? selectedCat : null,
-                      decoration: InputDecoration(
-                        labelText: 'Categoría',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      items: kCategories
-                          .map((c) => DropdownMenuItem<String>(value: c, child: Text(c)))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val == null) return;
-                        setModal(() => selectedCat = val);
-                      },
-                      // (opcional) placeholder si value llega null por seguridad
-                      hint: const Text('Selecciona una categoría'),
-                    ),
+                        DropdownButtonFormField<String>(
+                          value: kCategories.contains(selectedCat) ? selectedCat : null,
+                          decoration: InputDecoration(
+                            labelText: 'Categoría',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          items: kCategories
+                              .map((c) => DropdownMenuItem<String>(value: c, child: Text(c)))
+                              .toList(),
+                          onChanged: (val) {
+                            if (val == null) return;
+                            setModal(() => selectedCat = val);
+                          },
+                          // (opcional) placeholder si value llega null por seguridad
+                          hint: const Text('Selecciona una categoría'),
+                        ),
                         const SizedBox(height: 12),
                         // Tags rápidas
                         Wrap(

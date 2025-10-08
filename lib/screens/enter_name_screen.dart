@@ -1,8 +1,10 @@
 // lib/screens/enter_name_screen.dart
-import 'package:chillroom/screens/choose_gender_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'choose_gender_screen.dart';
 
 class EnterNameScreen extends StatefulWidget {
   const EnterNameScreen({super.key});

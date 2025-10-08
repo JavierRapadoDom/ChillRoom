@@ -1,11 +1,13 @@
 // lib/screens/upload_photos_screen.dart
 import 'dart:io';
 
-import 'package:chillroom/services/profile_service.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../services/profile_service.dart';
 
 class UploadPhotosScreen extends StatefulWidget {
   const UploadPhotosScreen({super.key});

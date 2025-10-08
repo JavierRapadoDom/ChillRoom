@@ -3,12 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../services/chat_service.dart';
 import '../widgets/app_menu.dart';
 import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'user_details_screen.dart';
+
+// 👇 Importa el servicio para que dispare la Edge Function tras enviar
+
 
 class ChatDetailScreen extends StatefulWidget {
   final String chatId;
@@ -73,21 +77,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (text.isEmpty) return;
     _controller.clear();
 
-    await _sb.from('mensajes').insert({
-      'chat_id'     : widget.chatId,
-      'emisor_id'   : _meId,
-      'receptor_id' : widget.companero['id'],
-      'mensaje'     : text,
-      'visto'       : false,
-    });
+    try {
+      // ✅ Usa ChatService para insertar + invocar notify-message
+      await ChatService.instance.sendTextToChat(
+        chatId: widget.chatId,
+        receptorId: widget.companero['id'] as String,
+        text: text,
+        sendPush: true,
+      );
 
-    // Scroll al final
-    await Future.delayed(const Duration(milliseconds: 50));
-    _ctrlScroll.animateTo(
-      0,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+      // Scroll al final
+      await Future.delayed(const Duration(milliseconds: 50));
+      _ctrlScroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    } catch (e) {
+      // Feedback si algo peta (sin romper la UI)
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo enviar el mensaje: $e')),
+        );
+      }
+    }
   }
 
   Widget _mensajeBubble(String msg, bool isMe, String time) {
@@ -195,8 +208,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                UserDetailsScreen(userId: widget.companero['id']),
+                            builder: (_) => UserDetailsScreen(
+                                userId: widget.companero['id']),
                           ),
                         );
                       },
@@ -206,8 +219,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             radius: 18,
                             backgroundImage: widget.companero['foto_perfil'] != null
                                 ? NetworkImage(widget.companero['foto_perfil'])
-                                : const AssetImage(
-                                'assets/default_avatar.png')
+                                : const AssetImage('assets/default_avatar.png')
                             as ImageProvider,
                           ),
                           const SizedBox(width: 10),
@@ -235,8 +247,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                UserDetailsScreen(userId: widget.companero['id']),
+                            builder: (_) => UserDetailsScreen(
+                                userId: widget.companero['id']),
                           ),
                         );
                       },
@@ -256,8 +268,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     final msgs = snap.data!;
                     DateTime? lastDate;
 
-                    SchedulerBinding.instance
-                        .addPostFrameCallback((_) async {
+                    SchedulerBinding.instance.addPostFrameCallback((_) async {
                       // Marcar mensajes vistos
                       final toMark = msgs
                           .where((m) =>
@@ -274,8 +285,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
                     return ListView.builder(
                       controller: _ctrlScroll,
-                      padding:
-                      const EdgeInsets.symmetric(vertical: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       reverse: true,
                       itemCount: msgs.length,
                       itemBuilder: (_, i) {
@@ -295,7 +305,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           lastDate = ts;
                         }
 
-                        children.add(_mensajeBubble(m['mensaje'], isMe, timeLabel));
+                        children.add(
+                            _mensajeBubble(m['mensaje'], isMe, timeLabel));
                         return Column(children: children);
                       },
                     );

@@ -1,5 +1,6 @@
 // lib/services/friend_request_service.dart
 import 'dart:math';
+import 'dart:developer' as dev;
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -43,6 +44,31 @@ class FriendRequestService {
     return row != null;
   }
 
+  Future<void> _notifyFriendRequest({
+    required String receiverId,
+    required String senderId,
+    required String requestId,
+  }) async {
+    try {
+      dev.log('[FriendRequest] notify-friend-request -> start', name: 'ChillRoom');
+      final resp = await _sb.functions.invoke(
+        'notify-friend-request',
+        body: {
+          'receiver_id': receiverId,
+          'sender_id': senderId,
+          'request_id': requestId,
+        },
+      );
+      dev.log(
+        '[FriendRequest] notify-friend-request -> done status=${resp.status}',
+        name: 'ChillRoom',
+      );
+    } catch (e) {
+      // No bloqueamos la UX por fallo de push
+      dev.log('[FriendRequest] notify-friend-request -> EXCEPTION $e', name: 'ChillRoom');
+    }
+  }
+
   // ==========================
   //  API PÚBLICA
   // ==========================
@@ -50,6 +76,7 @@ class FriendRequestService {
   /// Envía una solicitud a partir de un código de amigo.
   /// - Si el otro ya te envió una solicitud pendiente, la **acepta automáticamente**.
   /// - Evita duplicados y errores comunes.
+  /// - Si se crea una nueva solicitud, manda push al receptor.
   Future<void> sendByCode(String inputCode) async {
     final me = _sb.auth.currentUser?.id;
     if (me == null) {
@@ -96,7 +123,7 @@ class FriendRequestService {
       throw 'Ya enviaste una solicitud a esta persona.';
     }
 
-    // ¿Hay solicitud pendiente suya → mía? -> auto-aceptar
+    // ¿Hay solicitud pendiente suya → mía? -> auto-aceptar (no enviamos push aquí)
     final theirsPending = await _sb
         .from('solicitudes_amigo')
         .select('id')
@@ -106,7 +133,6 @@ class FriendRequestService {
         .maybeSingle();
 
     if (theirsPending != null) {
-      // Aceptamos y creamos amistad bilateral (requiere RPC amigos_add_pair)
       await _sb
           .from('solicitudes_amigo')
           .update({'estado': 'aceptada'})
@@ -115,12 +141,25 @@ class FriendRequestService {
       return;
     }
 
-    // Si no hay pendientes, creamos nueva solicitud
-    await _sb.from('solicitudes_amigo').insert({
+    // Si no hay pendientes, creamos nueva solicitud y notificamos
+    final inserted = await _sb
+        .from('solicitudes_amigo')
+        .insert({
       'emisor_id': me,
       'receptor_id': receptorId,
       'estado': 'pendiente',
-    });
+    })
+        .select('id')
+        .single();
+
+    final requestId = (inserted as Map)['id'] as String;
+
+    // Notificación al receptor (no bloqueante)
+    await _notifyFriendRequest(
+      receiverId: receptorId,
+      senderId: me,
+      requestId: requestId,
+    );
   }
 
   /// Devuelve el código del usuario (creándolo si no existe) y el enlace profundo.
@@ -155,9 +194,6 @@ class FriendRequestService {
     final code = row['code'] as String;
     // Enlace profundo (scheme definido en Android/iOS + App Links en main.dart)
     final deepLink = 'chillroom://add-friend?c=$code';
-    // (Opcional) Enlace web por si quieres compartir fuera
-    // final webLink = 'https://chillroom.app/add-friend?c=$code';
-
     return {'code': code, 'link': deepLink};
   }
 
@@ -170,7 +206,8 @@ class FriendRequestService {
     }
   }
 
-  /// Envía una solicitud directa (con id del receptor)
+  /// Envía una solicitud directa (con id del receptor).
+  /// Si la crea, notifica al receptor con OneSignal mediante la Edge Function.
   Future<void> sendRequest(String receptorId) async {
     final me = _sb.auth.currentUser!.id;
 
@@ -182,13 +219,31 @@ class FriendRequestService {
         .eq('receptor_id', receptorId)
         .eq('estado', 'pendiente')
         .limit(1);
-    if ((existing as List).isEmpty) {
-      await _sb.from('solicitudes_amigo').insert({
-        'emisor_id': me,
-        'receptor_id': receptorId,
-        'estado': 'pendiente',
-      });
+
+    if ((existing as List).isNotEmpty) {
+      // Ya había pendiente: no crear ni notificar
+      return;
     }
+
+    // Crear y traer id para poder notificar
+    final inserted = await _sb
+        .from('solicitudes_amigo')
+        .insert({
+      'emisor_id': me,
+      'receptor_id': receptorId,
+      'estado': 'pendiente',
+    })
+        .select('id')
+        .single();
+
+    final requestId = (inserted as Map)['id'] as String;
+
+    // Notificación al receptor (no bloqueante)
+    await _notifyFriendRequest(
+      receiverId: receptorId,
+      senderId: me,
+      requestId: requestId,
+    );
   }
 
   /// Devuelve true si ya existe una solicitud pendiente emisor→receptor

@@ -1,8 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../screens/piso_details_screen.dart';
 import '../services/favorite_service.dart';
-import 'package:chillroom/screens/piso_details_screen.dart';
+
 
 class PisosView extends StatefulWidget {
   const PisosView({super.key});

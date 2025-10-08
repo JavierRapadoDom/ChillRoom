@@ -1,8 +1,10 @@
 // lib/screens/edad_screen.dart
-import 'package:chillroom/screens/lifestyle_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'lifestyle_screen.dart';
 
 class EdadScreen extends StatefulWidget {
   const EdadScreen({super.key});

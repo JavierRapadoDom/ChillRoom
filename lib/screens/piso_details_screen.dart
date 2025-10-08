@@ -1,4 +1,3 @@
-import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,6 +6,7 @@ import '../services/friend_request_service.dart';
 import '../services/chat_service.dart';
 import '../services/swipe_service.dart';
 import '../widgets/app_menu.dart';
+import 'community_screen.dart';
 import 'user_details_screen.dart';
 import 'chat_detail_screen.dart';
 import 'home_screen.dart';

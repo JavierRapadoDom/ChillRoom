@@ -1,6 +1,6 @@
 // lib/screens/home_screen.dart
-import 'dart:math';
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,24 +26,27 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   static const Color accent = Color(0xFFE3A62F);
 
+  /// --- Config anuncios ---
+  static const int _swipesPerInterstitial = 7; // <--- ahora 7
+  static const Duration _adCooldown = Duration(seconds: 60); // evita spam
+  static const Duration _tickMin = Duration(minutes: 15);
+  static const Duration _tickMax = Duration(minutes: 20);
+
+  int _swipesSinceLastInterstitial = 0;
+  DateTime? _lastInterstitialShownAt;
+  Timer? _interstitialTicker;
+
   int _seleccionVista = 0;
   int _seleccionMenuInferior = 0;
   int _swipes = 0;
 
-  // ---------- Interstitial control ----------
-  int _swipeCountSinceLastInterstitial = 0;
-  Timer? _interstitialTimer;
-  DateTime? _lastInterstitialShownAt;
-  bool _interstitialInFlight = false;
-  static const Duration _interstitialCooldown = Duration(minutes: 2);
-
   late AnimationController _controller;
 
   final List<List<Color>> _gradients = const [
-    [Color(0xFFE3A62F), Color(0xFFD69412)],
-    [Color(0xFFE3A62F), Color(0xFFF5F5F5)],
-    [Color(0xFFF5F5F5), Colors.white],
-    [Color(0xFFD69412), Color(0xFFE3A62F)],
+    [Color(0xFFE3A62F), Color(0xFFD69412)], // dorado vivo → dorado oscuro
+    [Color(0xFFE3A62F), Color(0xFFF5F5F5)], // dorado → gris suave
+    [Color(0xFFF5F5F5), Colors.white], // gris claro → blanco
+    [Color(0xFFD69412), Color(0xFFE3A62F)], // dorado oscuro → dorado vivo
   ];
 
   // -------- Monetización (anuncios recompensados) --------
@@ -55,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen>
     final key = 'ads_count_${now.year}-${now.month}-${now.day}';
     final used = prefs.getInt(key) ?? 0;
     return (_maxRewardAdsPerDay - used).clamp(0, _maxRewardAdsPerDay);
+    // ignore: dead_code
   }
 
   Future<void> _incRewardAdsToday() async {
@@ -70,79 +74,85 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _loadSwipes();
 
-    // Animación de fondo
+    // precargamos anuncios
+    RewardAdsService.instance.preload();
+
+    // animación fondo
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
     )..repeat();
 
-    // Programa el primer interstitial por tiempo aleatorio
+    // programa el primer tick aleatorio
     _scheduleNextInterstitialTick();
   }
 
   @override
   void dispose() {
-    _interstitialTimer?.cancel();
     _controller.dispose();
+    _interstitialTicker?.cancel();
     super.dispose();
   }
 
-  // ----- Swipes -----
+  // ------- Swipe/Anuncios helpers -------
+
+  void _scheduleNextInterstitialTick() {
+    _interstitialTicker?.cancel();
+
+    final rand = Random();
+    final minMs = _tickMin.inMilliseconds;
+    final maxMs = _tickMax.inMilliseconds;
+    final delta = maxMs - minMs;
+    final waitMs = minMs + rand.nextInt(delta + 1);
+
+    _interstitialTicker = Timer(Duration(milliseconds: waitMs), () async {
+      await _tryShowInterstitial(reason: 'ticker');
+      // reprograma el siguiente
+      if (mounted) _scheduleNextInterstitialTick();
+    });
+  }
+
+  bool get _isCooldownActive {
+    if (_lastInterstitialShownAt == null) return false;
+    return DateTime.now().difference(_lastInterstitialShownAt!) < _adCooldown;
+  }
+
+  Future<void> _tryShowInterstitial({required String reason}) async {
+    if (!mounted) return;
+
+    // Evita mostrar si no hay swipes (opcional)
+    // final remaining = await SwipeService.instance.getRemaining();
+    // if (remaining <= 0) return;
+
+    if (_isCooldownActive) return;
+
+    final ok = await RewardAdsService.instance.showInterstitial();
+    if (ok) {
+      _lastInterstitialShownAt = DateTime.now();
+    } else {
+      // si no se pudo, intenta recachear para próxima vez
+      RewardAdsService.instance.cacheInterstitial();
+    }
+  }
+
   Future<void> _loadSwipes() async {
     final count = await SwipeService.instance.getRemaining();
     if (!mounted) return;
     setState(() => _swipes = count);
   }
 
-  // Se lo pasamos a UsuariosView para que lo llame cada vez que consume un swipe
+  /// Se llama tras consumir un swipe en UsuariosView
   Future<void> _onSwipeConsumed() async {
-    // refresca contador visual
+    // refresca contador de swipes en el badge
     await _loadSwipes();
 
-    // ++ contador para interstitial cada 5
-    _swipeCountSinceLastInterstitial++;
-    if (_swipeCountSinceLastInterstitial >= 5) {
-      _swipeCountSinceLastInterstitial = 0;
-      _maybeShowInterstitial(reason: 'every5');
+    // cuenta y dispara interstitial cada N swipes
+    _swipesSinceLastInterstitial++;
+    if (_swipesSinceLastInterstitial % _swipesPerInterstitial == 0) {
+      _tryShowInterstitial(reason: 'counter');
     }
   }
 
-  // ----- Interstitial timers & cooldown -----
-  void _scheduleNextInterstitialTick() {
-    _interstitialTimer?.cancel();
-
-    // Random entre 15 y 20 min (inclusive)
-    final minutes = 15 + Random().nextInt(6); // 15..20
-    _interstitialTimer = Timer(Duration(minutes: minutes), () async {
-      _maybeShowInterstitial(reason: 'timer');
-      // Reprograma siguiente tick, pase lo que pase
-      _scheduleNextInterstitialTick();
-    });
-  }
-
-  Future<void> _maybeShowInterstitial({required String reason}) async {
-    if (!mounted) return;
-
-    // Cooldown para evitar spam si coinciden timer y cada5
-    final now = DateTime.now();
-    if (_interstitialInFlight) return;
-    if (_lastInterstitialShownAt != null &&
-        now.difference(_lastInterstitialShownAt!) < _interstitialCooldown) {
-      return;
-    }
-
-    _interstitialInFlight = true;
-    try {
-      final opened = await RewardAdsService.instance.showInterstitial();
-      if (opened) {
-        _lastInterstitialShownAt = DateTime.now();
-      }
-    } finally {
-      _interstitialInFlight = false;
-    }
-  }
-
-  // ----- Navegación -----
   void _cambiarVista(int index) {
     setState(() => _seleccionVista = index);
   }
@@ -154,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen>
     late Widget dest;
     switch (index) {
       case 0:
-        return; // Inicio
+        return; // Ya estamos en Inicio
       case 1:
         dest = const CommunityScreen();
         break;
@@ -170,7 +180,6 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
   }
 
-  // ----- Sheet de swipes (rewarded) -----
   Future<void> _openSwipesSheet() async {
     final adsLeft = await _getRewardAdsLeftToday();
 
@@ -196,7 +205,6 @@ class _HomeScreenState extends State<HomeScreen>
                 }
                 return;
               }
-              // Usa tu servicio Appodeal (método correcto)
               final ok = await RewardAdsService.instance.showRewardedAd();
               if (ok) {
                 await _incRewardAdsToday();
@@ -234,7 +242,8 @@ class _HomeScreenState extends State<HomeScreen>
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                        content: Text('Pago cancelado o fallido ($precio)')),
+                        content:
+                        Text('Pago cancelado o fallido ($precio)')),
                   );
                 }
               }
@@ -258,8 +267,8 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   child: Icon(icon, color: Colors.white),
                 ),
-                title:
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                title: Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
                 subtitle: Text(subtitle),
                 trailing: Container(
                   padding:
@@ -404,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             child: Column(
               children: [
-                // AppBar custom
+                // AppBar custom (igual estética)
                 SafeArea(
                   child: Container(
                     padding:
@@ -433,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         Row(
                           children: [
-                            // Botón de swipes
+                            // Botón de swipes con badge
                             GestureDetector(
                               onTap: _openSwipesSheet,
                               child: Stack(
@@ -496,17 +505,11 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             const SizedBox(width: 20),
 
-                            // Notificaciones
+                            // Notificaciones (placeholder)
                             IconButton(
-                              icon: Stack(
-                                children: const [
-                                  Icon(Icons.notifications_none,
-                                      color: Colors.black87, size: 28),
-                                ],
-                              ),
-                              onPressed: () {
-                                // TODO: notificaciones
-                              },
+                              icon: const Icon(Icons.notifications_none,
+                                  color: Colors.black87, size: 28),
+                              onPressed: () {/* TODO: notificaciones */},
                             ),
                           ],
                         )
@@ -517,8 +520,8 @@ class _HomeScreenState extends State<HomeScreen>
 
                 // Toggle Usuarios / Pisos
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 12),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   child: Row(
                     children: [
                       _buildToggleButton(
@@ -538,7 +541,6 @@ class _HomeScreenState extends State<HomeScreen>
 
                 Expanded(
                   child: _seleccionVista == 0
-                  // 👉 aquí enganchamos nuestro callback con interstitial cada 5
                       ? UsuariosView(onSwipeConsumed: _onSwipeConsumed)
                       : const PisosView(),
                 ),
