@@ -5,12 +5,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/chat_service.dart';
 import '../services/friend_request_service.dart';
+import '../services/group_service.dart';
 import '../widgets/app_menu.dart';
 import 'chat_detail_screen.dart';
 import 'community_screen.dart';
 import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'profile_screen.dart';
+import 'group_create_screen.dart';
+import 'group_chat_screen.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({Key? key}) : super(key: key);
@@ -28,16 +31,21 @@ class _MessagesScreenState extends State<MessagesScreen> {
   bool _isSearching = false;
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // Chats
+  // Chats 1:1
   List<Map<String, dynamic>> _allChats = [];
   List<Map<String, dynamic>> _filteredChats = [];
-  bool _loading = false;
+  bool _loadingChats = false;
+
+  // Grupos
+  List<Map<String, dynamic>> _groups = [];
+  bool _loadingGroups = false;
 
   // Solicitudes pendientes -> badge
   int _pendingCount = 0;
 
-  // 👇 Realtime mensajes
+  // Realtime
   RealtimeChannel? _msgsRt;
+  RealtimeChannel? _groupMsgsRt;
 
   void _openAddFriendModalWithPrefill(String code) {
     // Abre el modal de “Añadir amigo” con el código precargado en la pestaña 2
@@ -91,7 +99,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         const SizedBox(height: 14),
 
                         // Contenido de cada pestaña
-                        if (tabIndex == 0) _MyCodePanel(), // tu panel “Mi código” (si ya lo tienes hecho)
+                        if (tabIndex == 0) _MyCodePanel(), // tu panel “Mi código”
                         if (tabIndex == 1)
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -162,9 +170,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     );
   }
 
-
-
-  // ================= NUEVO: CODIGOS / AMIGOS =================
+  // ================= CODIGOS / AMIGOS =================
   Future<String> _ensureMyFriendCode() async {
     final uid = _sb.auth.currentUser!.id;
 
@@ -180,7 +186,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
 
     // 2) Generar código corto bonito (7-8 chars)
-    // Mezcla uid y tiempo para minimizar colisiones.
     String _generate() {
       final t = DateTime.now().millisecondsSinceEpoch;
       final base = (uid + t.toString()).hashCode.abs();
@@ -197,7 +202,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
     String code = _generate();
 
-    // 3) Guardar. Si colisiona, reintenta hasta 3 veces.
+    // 3) Guardar con reintentos
     for (int i = 0; i < 3; i++) {
       try {
         await _sb.from('friend_codes').upsert(
@@ -206,11 +211,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
         );
         return code;
       } catch (_) {
-        // intentar otro código
         code = _generate();
       }
     }
-    // Último intento
     await _sb.from('friend_codes').upsert(
       {'user_id': uid, 'code': code},
       onConflict: 'user_id',
@@ -219,7 +222,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 
   Future<String?> _resolveUserIdByCode(String codeOrLink) async {
-    // Permite pegar el link "chillroom://add-friend?c=XXXXXX"
     final uri = Uri.tryParse(codeOrLink.trim());
     String code = codeOrLink.trim().toUpperCase();
     if (uri != null && uri.queryParameters.containsKey('c')) {
@@ -246,7 +248,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       return;
     }
 
-    // Evitar duplicadas: si ya hay pendiente o aceptada en ambas direcciones
+    // Evitar duplicadas
     final existing = await _sb
         .from('solicitudes_amigo')
         .select('id, estado, emisor_id, receptor_id')
@@ -300,12 +302,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override
   void initState() {
     super.initState();
-    _loadChats();
-    _refreshPendingCount();
+    _loadAll();
     _searchCtrl.addListener(_onSearchChanged);
 
-    // 👇 suscripción Realtime para refrescar lista al vuelo
+    // Realtime
     _subscribeRealtime();
+    _subscribeGroupRealtime();
   }
 
   @override
@@ -313,15 +315,17 @@ class _MessagesScreenState extends State<MessagesScreen> {
     _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
     _unsubscribeRealtime();
+    _unsubscribeGroupRealtime();
     super.dispose();
   }
 
-  // ====== REALTIME MENSAJES ======
-  void _subscribeRealtime() {
-    try {
-      _msgsRt?.unsubscribe();
-    } catch (_) {}
+  Future<void> _loadAll() async {
+    await Future.wait([_loadChats(), _loadGroups(), _refreshPendingCount()]);
+  }
 
+  // ====== REALTIME MENSAJES 1:1 ======
+  void _subscribeRealtime() {
+    try { _msgsRt?.unsubscribe(); } catch (_) {}
     _msgsRt = _sb
         .channel('public:mensajes:inbox')
         .onPostgresChanges(
@@ -340,11 +344,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
         final chatId = row['chat_id'] as String?;
         if (chatId == null) return;
 
-        // Asegura que el mensaje tenga que ver conmigo
         final mine = (emisor == me) || (receptor == me);
         if (!mine) return;
 
-        // Si el chat ya está en la lista, actualiza preview + unread y súbelo arriba
         final idx = _allChats.indexWhere((c) => c['chatId'] == chatId);
         if (idx >= 0) {
           final isUnread = (emisor != me); // si lo envió otro, es no leído
@@ -362,12 +364,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
           setState(() {
             _allChats.removeAt(idx);
             _allChats.insert(0, updated);
-            _applyFilter(); // respeta el término de búsqueda activo
+            _applyFilter();
           });
           return;
         }
 
-        // Si aún no lo tenemos (p. ej., chat recién creado), recarga lista
         await _loadChats();
       },
     )
@@ -383,6 +384,31 @@ class _MessagesScreenState extends State<MessagesScreen> {
     } catch (_) {}
   }
 
+  // ====== REALTIME MENSAJES DE GRUPO ======
+  void _subscribeGroupRealtime() {
+    try { _groupMsgsRt?.unsubscribe(); } catch (_) {}
+    _groupMsgsRt = _sb
+        .channel('public:grupo_mensajes:inbox')
+        .onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'grupo_mensajes',
+      callback: (payload) async {
+        await _loadGroups(); // simple; refrescamos previews
+      },
+    )
+        .subscribe();
+  }
+
+  void _unsubscribeGroupRealtime() {
+    try {
+      if (_groupMsgsRt != null) {
+        _sb.removeChannel(_groupMsgsRt!);
+        _groupMsgsRt = null;
+      }
+    } catch (_) {}
+  }
+
   void _applyFilter() {
     final term = _searchCtrl.text.trim().toLowerCase();
     if (term.isEmpty) {
@@ -390,7 +416,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     } else {
       _filteredChats = _allChats.where((c) {
         final name = (c['partner']['nombre'] as String).toLowerCase();
-        return name.startsWith(term);
+        return name.contains(term);
       }).toList();
     }
   }
@@ -410,7 +436,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
-  // Reimplementación muy simple de myIncoming() para no depender de service externo
+  // Reimplementación simple de myIncoming()
   Future<List<Map<String, dynamic>>> _myIncoming() async {
     final me = _sb.auth.currentUser!.id;
     final rows = await _sb
@@ -432,7 +458,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   Future<void> _loadChats() async {
     if (!mounted) return;
-    setState(() => _loading = true);
+    setState(() => _loadingChats = true);
     try {
       final me = _sb.auth.currentUser!;
       final rows = await _sb
@@ -449,8 +475,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
           .order('created_at', referencedTable: 'mensajes', ascending: false)
           .limit(1, referencedTable: 'mensajes');
 
-      if (!mounted) return;
-
       // Avatares
       final ids = <String>{
         for (final r in rows as List)
@@ -463,7 +487,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
             .from('perfiles')
             .select('usuario_id,fotos')
             .inFilter('usuario_id', ids.toList());
-        if (!mounted) return;
         for (final p in perf as List) {
           final m = p as Map<String, dynamic>;
           final fotos = List<String>.from(m['fotos'] ?? []);
@@ -512,7 +535,24 @@ class _MessagesScreenState extends State<MessagesScreen> {
         SnackBar(content: Text('Error cargando chats: $e')),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _loadingChats = false);
+    }
+  }
+
+  Future<void> _loadGroups() async {
+    if (!mounted) return;
+    setState(() => _loadingGroups = true);
+    try {
+      final list = await GroupService.instance.fetchMyGroups();
+      if (!mounted) return;
+      setState(() => _groups = list);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error cargando grupos: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingGroups = false);
     }
   }
 
@@ -662,12 +702,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 },
               ),
               ListTile(
-                leading:
-                const Icon(Icons.delete_outline, color: Colors.redAccent),
+                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
                 title: const Text('Borrar chat',
-                    style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w700)),
+                    style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700)),
                 onTap: () {
                   Navigator.pop(context);
                   _confirmDeleteChat(
@@ -702,8 +739,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
           FilledButton.tonal(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-            child:
-            const Text('Borrar', style: TextStyle(color: Colors.white)),
+            child: const Text('Borrar', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -764,6 +800,19 @@ class _MessagesScreenState extends State<MessagesScreen> {
     setState(() => _bottomIdx = i);
   }
 
+  Future<void> _openCreateGroupFlow() async {
+    final gid = await Navigator.push<String?>(
+      context,
+      MaterialPageRoute(builder: (_) => const GroupCreateScreen()),
+    );
+    if (gid != null && mounted) {
+      await Navigator.push(context, MaterialPageRoute(
+        builder: (_) => GroupChatScreen(groupId: gid),
+      ));
+      if (mounted) _loadGroups();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final solicitudesTab = Tab(
@@ -822,7 +871,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
           child: SafeArea(
             child: Column(
               children: [
-                // AppBar custom con buscador + NUEVO botón agregar amigo
+                // AppBar custom con buscador + botones
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
@@ -837,6 +886,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           ),
                         ),
                         const Spacer(),
+                        IconButton(
+                          tooltip: 'Crear grupo',
+                          icon: const Icon(Icons.groups_rounded, color: accent),
+                          onPressed: _openCreateGroupFlow,
+                        ),
                         IconButton(
                           tooltip: 'Agregar amigo',
                           icon: const Icon(Icons.person_add_alt_1, color: accent),
@@ -892,112 +946,137 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      // Chats
-                      _loading
-                          ? const Center(child: CircularProgressIndicator())
-                          : _filteredChats.isEmpty
-                          ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Text('No tienes chats aún'),
-                            SizedBox(height: 8),
-                          ],
-                        ),
-                      )
-                          : RefreshIndicator(
+                      // ====== MENSAJES ======
+                      RefreshIndicator(
                         onRefresh: () async {
-                          await _loadChats();
-                          await _refreshPendingCount();
+                          await _loadAll();
                         },
-                        child: ListView.builder(
+                        child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(12),
-                          itemCount: _filteredChats.length,
-                          itemBuilder: (ctx, i) {
-                            final c = _filteredChats[i];
-                            final p = c['partner'] as Map<String, dynamic>;
-                            final last = c['lastMsg'] as Map<String, dynamic>?;
-                            final time = last != null ? _fmtTime(last['created_at']) : '';
-                            final unread = c['unread'] as bool;
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                          children: [
+                            // CTA Crear grupo
+                            _CreateGroupCTA(onTap: _openCreateGroupFlow),
 
-                            return GestureDetector(
-                              onLongPress: () => _openChatMenu(c),
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Colors.black12,
-                                      blurRadius: 4,
-                                      offset: Offset(0, 2),
-                                    )
-                                  ],
-                                ),
-                                child: ListTile(
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => ChatDetailScreen(
-                                        chatId: c['chatId'] as String,
-                                        companero: {
-                                          'id': p['id'],
-                                          'nombre': p['nombre'],
-                                          'foto_perfil': p['foto'],
-                                        },
+                            // Sección de grupos
+                            if (_loadingGroups)
+                              const Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Center(child: CircularProgressIndicator()),
+                              )
+                            else if (_groups.isNotEmpty)
+                              _GroupsSection(
+                                groups: _groups,
+                                onTap: (g) {
+                                  Navigator.push(context, MaterialPageRoute(
+                                    builder: (_) => GroupChatScreen(
+                                      groupId: g['id'] as String,
+                                      heroName: g['nombre'] as String,
+                                      heroPhoto: g['foto'] as String?,
+                                    ),
+                                  )).then((_) => _loadGroups());
+                                },
+                              ),
+
+                            const SizedBox(height: 8),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                              child: Text('Chats', style: TextStyle(fontWeight: FontWeight.w800)),
+                            ),
+
+                            // Lista de chats 1:1
+                            if (_loadingChats)
+                              const Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Center(child: CircularProgressIndicator()),
+                              )
+                            else if (_filteredChats.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Center(child: Text('No tienes chats aún')),
+                              )
+                            else
+                              ..._filteredChats.map((c) {
+                                final p = c['partner'] as Map<String, dynamic>;
+                                final last = c['lastMsg'] as Map<String, dynamic>?;
+                                final time = last != null ? _fmtTime(last['created_at']) : '';
+                                final unread = c['unread'] as bool;
+
+                                return GestureDetector(
+                                  onLongPress: () => _openChatMenu(c),
+                                  child: Container(
+                                    margin: const EdgeInsets.symmetric(vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Colors.black12,
+                                          blurRadius: 4,
+                                          offset: Offset(0, 2),
+                                        )
+                                      ],
+                                    ),
+                                    child: ListTile(
+                                      onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => ChatDetailScreen(
+                                            chatId: c['chatId'] as String,
+                                            companero: {
+                                              'id': p['id'],
+                                              'nombre': p['nombre'],
+                                              'foto_perfil': p['foto'],
+                                            },
+                                          ),
+                                        ),
+                                      ).then((_) => _loadChats()),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                      leading: CircleAvatar(
+                                        radius: 26,
+                                        backgroundColor: accent.withOpacity(0.2),
+                                        backgroundImage: p['foto'] != null ? NetworkImage(p['foto']) : null,
+                                        child: p['foto'] == null
+                                            ? const Icon(Icons.person, color: accent, size: 28)
+                                            : null,
+                                      ),
+                                      title: Text(
+                                        p['nombre'],
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                      subtitle: Text(
+                                        last != null ? last['mensaje'] as String : 'Sin mensajes',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      trailing: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            time,
+                                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                          ),
+                                          if (unread)
+                                            Container(
+                                              margin: const EdgeInsets.only(top: 6),
+                                              width: 12,
+                                              height: 12,
+                                              decoration: const BoxDecoration(
+                                                color: Colors.redAccent,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 8),
-                                  leading: CircleAvatar(
-                                    radius: 26,
-                                    backgroundColor: accent.withOpacity(0.2),
-                                    backgroundImage:
-                                    p['foto'] != null ? NetworkImage(p['foto']) : null,
-                                    child: p['foto'] == null
-                                        ? const Icon(Icons.person, color: accent, size: 28)
-                                        : null,
-                                  ),
-                                  title: Text(
-                                    p['nombre'],
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
-                                  ),
-                                  subtitle: Text(
-                                    last != null ? last['mensaje'] as String : 'Sin mensajes',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  trailing: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        time,
-                                        style: const TextStyle(
-                                            fontSize: 12, color: Colors.grey),
-                                      ),
-                                      if (unread)
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 6),
-                                          width: 12,
-                                          height: 12,
-                                          decoration: const BoxDecoration(
-                                            color: Colors.redAccent,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
+                                );
+                              }).toList(),
+                          ],
                         ),
                       ),
 
-                      // Solicitudes (reutilizamos myIncoming local)
+                      // ====== SOLICITUDES ======
                       _RequestsList(onChanged: _refreshPendingCount, fetch: _myIncoming, sb: _sb),
                     ],
                   ),
@@ -1007,6 +1086,131 @@ class _MessagesScreenState extends State<MessagesScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------- Widgets de UI para grupos ----------
+class _CreateGroupCTA extends StatelessWidget {
+  final VoidCallback onTap;
+  const _CreateGroupCTA({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFFF4DC), Color(0xFFFCE9BE)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 6))],
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.auto_awesome, color: Colors.amber, size: 28),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Crea un grupo con tus amigos',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+            Icon(Icons.groups_rounded),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupsSection extends StatelessWidget {
+  final List<Map<String, dynamic>> groups;
+  final ValueChanged<Map<String, dynamic>> onTap;
+  const _GroupsSection({required this.groups, required this.onTap});
+
+  String _fmtTime(String iso) {
+    final dt = DateTime.parse(iso).toLocal();
+    return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Tus grupos', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ),
+        ...groups.map((g) {
+          final last = g['lastMsg'] as Map<String, dynamic>?;
+          final time = last != null ? _fmtTime(last['created_at']) : '';
+          final unread = (g['unread'] as bool?) ?? false;
+          return GestureDetector(
+            onTap: () => onTap(g),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: const RadialGradient(
+                  radius: 1.2,
+                  colors: [Color(0xFFFFFFFF), Color(0xFFFFF4DC)],
+                ),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3))],
+                border: Border.all(color: const Color(0xFFF1D18D)),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                leading: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 26,
+                      backgroundColor: const Color(0x33E3A62F),
+                      backgroundImage: g['foto'] != null ? NetworkImage(g['foto']) : null,
+                      child: g['foto'] == null
+                          ? const Icon(Icons.group, color: _MessagesScreenState.accent, size: 28)
+                          : null,
+                    ),
+                    const Positioned(
+                      bottom: -2,
+                      right: -2,
+                      child: Icon(Icons.auto_awesome, size: 20, color: Colors.amber),
+                    ),
+                  ],
+                ),
+                title: Text(g['nombre'] as String, style: const TextStyle(fontWeight: FontWeight.w900)),
+                subtitle: Text(
+                  last != null ? (last['contenido'] as String) : 'Nuevo grupo – ¡Diles hola!',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(time, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    if (unread)
+                      Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+        const SizedBox(height: 8),
+      ],
     );
   }
 }
@@ -1058,8 +1262,7 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 6),
-            const Text('Iniciar chat',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+            const Text('Iniciar chat', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1115,14 +1318,14 @@ class _FriendPickerSheetState extends State<_FriendPickerSheet> {
 }
 
 /* ===========================
- *   NUEVO: ADD FRIEND SHEET
+ *   ADD FRIEND SHEET
  * =========================== */
 class _AddFriendSheet extends StatefulWidget {
   final Future<String> Function() ensureMyCode;
   final Future<String?> Function(String) resolveByCode;
   final Future<void> Function(String) sendRequestTo;
-  final String? prefillCode;          // NUEVO
-  final int initialTabIndex;          // NUEVO
+  final String? prefillCode;
+  final int initialTabIndex;
 
   const _AddFriendSheet({
     required this.ensureMyCode,
@@ -1339,7 +1542,7 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
                                     FilledButton.icon(
                                       onPressed: _myCode == null ? null : () => _copy(_linkFromCode(_myCode!), toast: 'Enlace copiado'),
                                       style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.black87,  // mejor contraste que amarillo
+                                        backgroundColor: Colors.black87,
                                         foregroundColor: Colors.white,
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                       ),
@@ -1348,7 +1551,6 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
                                     ),
                                   ],
                                 ),
-
                               ],
                             ),
                           ),
@@ -1392,7 +1594,8 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
                               onPressed: _sending ? null : _submit,
                               icon: _sending
                                   ? const SizedBox(
-                                width: 18, height: 18,
+                                width: 18,
+                                height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
                                   : const Icon(Icons.send_rounded),
@@ -1594,12 +1797,12 @@ class _SegTab extends StatelessWidget {
   }
 }
 
-// Panel “Mi código” (si aún no lo tienes, usa este placeholder bonito)
+// Panel “Mi código”
 class _MyCodePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, String?>>(
-      future: FriendRequestService.instance.myCode(), // { 'code': 'ABCD-1234', 'link': 'chillroom://add-friend?c=ABCD-1234' }
+      future: FriendRequestService.instance.myCode(), // { code, link }
       builder: (_, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Padding(
@@ -1622,8 +1825,10 @@ class _MyCodePanel extends StatelessWidget {
                 color: Colors.black.withOpacity(.06),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: SelectableText(code,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2)),
+              child: SelectableText(
+                code,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2),
+              ),
             ),
             const SizedBox(height: 12),
             if (link.isNotEmpty)

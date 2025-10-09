@@ -1,7 +1,7 @@
 // lib/main.dart
 import 'dart:async';
 
-import 'package:Chillroom/screens/community_screen.dart';
+import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';

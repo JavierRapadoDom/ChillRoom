@@ -3,9 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_linux
   desktop_webview_window
   file_selector_linux
   gtk
+  record_linux
   url_launcher_linux
   window_to_front
 )

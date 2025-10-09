@@ -1,7 +1,7 @@
 // lib/screens/favorites_screen.dart
 
-import 'package:Chillroom/screens/piso_details_screen.dart';
-import 'package:Chillroom/screens/profile_screen.dart';
+import 'package:chillroom/screens/piso_details_screen.dart';
+import 'package:chillroom/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 

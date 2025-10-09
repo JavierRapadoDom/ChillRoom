@@ -41,8 +41,8 @@ class SectionCard extends StatelessWidget {
 
 class PhotosCard extends StatelessWidget {
   final List<String> fotoUrls;
-  final VoidCallback onEdit;
-  const PhotosCard({super.key, required this.fotoUrls, required this.onEdit});
+  final VoidCallback? onEdit; // <- ahora opcional
+  const PhotosCard({super.key, required this.fotoUrls, this.onEdit});
 
   static const Color accent = Color(0xFFE3A62F);
 
@@ -50,30 +50,35 @@ class PhotosCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return SectionCard(
       title: 'Mis fotos',
-      trailing: IconButton(
+      // Si no hay onEdit, no mostramos botón de editar
+      trailing: (onEdit != null)
+          ? IconButton(
         tooltip: 'Editar fotos',
         icon: const Icon(Icons.photo_library_outlined, color: accent),
         onPressed: onEdit,
-      ),
+      )
+          : null,
       child: (fotoUrls.isEmpty)
           ? Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Aún no has subido fotos.', style: TextStyle(color: Colors.black.withOpacity(0.6))),
           const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: onEdit,
-            icon: const Icon(Icons.add_a_photo_outlined, color: accent),
-            label: const Text('Añadir fotos', style: TextStyle(color: accent)),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: accent, width: 1.2),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          if (onEdit != null)
+            OutlinedButton.icon(
+              onPressed: onEdit,
+              icon: const Icon(Icons.add_a_photo_outlined, color: accent),
+              label: const Text('Añadir fotos', style: TextStyle(color: accent)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: accent, width: 1.2),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
-          ),
         ],
       )
           : GridView.builder(
-        shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
         itemCount: fotoUrls.length.clamp(0, 9),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8,
@@ -92,8 +97,8 @@ class PhotosCard extends StatelessWidget {
 
 class BioCard extends StatelessWidget {
   final String bio;
-  final VoidCallback onEdit;
-  const BioCard({super.key, required this.bio, required this.onEdit});
+  final VoidCallback? onEdit; // <- ahora opcional
+  const BioCard({super.key, required this.bio, this.onEdit});
   static const Color accent = Color(0xFFE3A62F);
 
   @override
@@ -104,15 +109,18 @@ class BioCard extends StatelessWidget {
         bio.trim().isEmpty ? 'Sin biografía' : bio,
         style: TextStyle(color: Colors.black.withOpacity(0.85), height: 1.35),
       ),
-      trailing: IconButton(icon: const Icon(Icons.edit, color: accent), onPressed: onEdit),
+      // Si no hay onEdit, no mostramos el lápiz
+      trailing: (onEdit != null)
+          ? IconButton(icon: const Icon(Icons.edit, color: accent), onPressed: onEdit)
+          : null,
     );
   }
 }
 
 class InterestsCard extends StatelessWidget {
   final List<String> intereses;
-  final VoidCallback onEdit;
-  const InterestsCard({super.key, required this.intereses, required this.onEdit});
+  final VoidCallback? onEdit; // <- ahora opcional
+  const InterestsCard({super.key, required this.intereses, this.onEdit});
   static const Color accent = Color(0xFFE3A62F);
 
   @override
@@ -122,12 +130,16 @@ class InterestsCard extends StatelessWidget {
       child: intereses.isEmpty
           ? Text('Aún no has añadido intereses', style: TextStyle(color: Colors.black.withOpacity(0.6)))
           : Wrap(
-        spacing: 10, runSpacing: 10,
+        spacing: 10,
+        runSpacing: 10,
         children: intereses
             .map((i) => InterestChip(text: i, icon: _iconForInterest(i.toLowerCase())))
             .toList(),
       ),
-      trailing: IconButton(tooltip: 'Editar intereses', icon: const Icon(Icons.tune, color: accent), onPressed: onEdit),
+      // Si no hay onEdit, no mostramos el icono de “ajustes”
+      trailing: (onEdit != null)
+          ? IconButton(tooltip: 'Editar intereses', icon: const Icon(Icons.tune, color: accent), onPressed: onEdit)
+          : null,
     );
   }
 
@@ -214,7 +226,9 @@ class FlatCardPremium extends StatelessWidget {
             if (url != null)
               Image.network(url, height: 160, width: double.infinity, fit: BoxFit.cover)
             else
-              Container(height: 160, color: Colors.grey[300],
+              Container(
+                height: 160,
+                color: Colors.grey[300],
                 child: const Center(child: Icon(Icons.home, size: 64, color: Colors.white)),
               ),
             Padding(

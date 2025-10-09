@@ -12,7 +12,7 @@ import 'home_screen.dart';
 import 'favorites_screen.dart';
 import 'messages_screen.dart';
 import 'settings_screen.dart';
-import 'edit_profile_screen.dart'; // 👈 NUEVA PANTALLA
+import 'edit_profile_screen.dart'; // 👈 Editar perfil
 
 // NUEVO (música / Spotify)
 import '../features/super_interests/music_super_interest_screen.dart';
@@ -80,14 +80,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         : null;
 
     // Fotos
-    final List<String> fotoKeys =
-    List<String>.from(prof['fotos'] ?? const []);
-    final List<String> fotoUrls = fotoKeys
-        .map((f) => f.startsWith('http') ? f : _publicUrlForKey(f))
-        .toList();
+    final List<String> fotoKeys = List<String>.from(prof['fotos'] ?? const []);
+    final List<String> fotoUrls =
+    fotoKeys.map((f) => f.startsWith('http') ? f : _publicUrlForKey(f)).toList();
     final String? avatar = fotoUrls.isNotEmpty ? fotoUrls.first : null;
 
-    // ---- Tokens de Spotify (para saber si está conectado) ----
+    // Tokens Spotify
     final hasSpotify = await _supabase
         .from('spotify_tokens')
         .select('user_id')
@@ -96,7 +94,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .then((row) => row != null)
         .catchError((_) => false);
 
-    // Música "manual" (user_music_prefs)
+    // Música manual
     final hasMusicPrefs = await _supabase
         .from('user_music_prefs')
         .select('user_id')
@@ -105,11 +103,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .then((row) => row != null)
         .catchError((_) => false);
 
-    // ---- Super interés explícito + datos JSONB ----
+    // Super interés
     String? superInterestRaw = (prof['super_interes'] as String?)?.trim();
-    if (superInterestRaw != null && superInterestRaw.isEmpty) {
-      superInterestRaw = null;
-    }
+    if (superInterestRaw != null && superInterestRaw.isEmpty) superInterestRaw = null;
 
     final Map<String, dynamic> siData = prof['super_interes_data'] == null
         ? <String, dynamic>{}
@@ -148,10 +144,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .toList();
     }
 
-    if ((superInterestRaw == 'music') &&
-        topArtists.isEmpty &&
-        topTracks.isEmpty &&
-        hasSpotify) {
+    if ((superInterestRaw == 'music') && topArtists.isEmpty && topTracks.isEmpty && hasSpotify) {
       try {
         topArtists = await SpotifyAuthClient.instance.getTopArtists(limit: 8);
         topTracks = await SpotifyAuthClient.instance.getTopTracks(limit: 5);
@@ -165,10 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       gamingData = {
         'has': (List.from(g['platforms'] ?? const []).isNotEmpty) ||
             (List.from(g['genres'] ?? const []).isNotEmpty) ||
-            ((g['favoriteGame'] ?? g['favorite_game'] ?? '')
-                .toString()
-                .trim()
-                .isNotEmpty),
+            ((g['favoriteGame'] ?? g['favorite_game'] ?? '').toString().trim().isNotEmpty),
         'platforms': List<String>.from(g['platforms'] ?? const []),
         'genres': List<String>.from(g['genres'] ?? const []),
         'fav_games': [
@@ -177,9 +167,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ...List<String>.from(g['favoriteGames'] ?? const [])
         ],
         'hours_per_week': g['hoursPerWeek'] ?? g['hours_per_week'],
-        'gamer_tags': {
-          for (final t in List<String>.from(g['tags'] ?? const [])) t: true
-        },
+        'gamer_tags': {for (final t in List<String>.from(g['tags'] ?? const [])) t: true},
       };
     }
 
@@ -211,8 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'bio': prof['biografia'] ?? '',
       'estilo_vida': List<String>.from(prof['estilo_vida'] ?? const []),
       'deportes': List<String>.from(prof['deportes'] ?? const []),
-      'entretenimiento':
-      List<String>.from(prof['entretenimiento'] ?? const []),
+      'entretenimiento': List<String>.from(prof['entretenimiento'] ?? const []),
       'intereses': [
         ...List<String>.from(prof['estilo_vida'] ?? const []),
         ...List<String>.from(prof['deportes'] ?? const []),
@@ -223,7 +210,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'photosCount': fotoUrls.length,
       'fotoUrls': fotoUrls,
 
-      // Super interés decidido
+      // Super interés
       'super_interes': superInterestRaw,
 
       // Música
@@ -290,8 +277,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _openFavorites() {
-    Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const FavoritesScreen()));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen()));
   }
 
   void _onTapBottom(int idx) {
@@ -310,8 +296,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       default:
         dest = const ProfileScreen();
     }
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => dest));
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => dest));
     _selectedBottom = idx;
   }
 
@@ -343,8 +328,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context,
       MaterialPageRoute(builder: (_) => const EditProfileScreen()),
     );
+
     if (changed == true && mounted) {
-      setState(() => _futureData = _loadData());
+      setState(() {
+        _futureData = _loadData();
+      });
     }
   }
 
@@ -364,18 +352,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           final d = snap.data!;
           final String? avatar = d['avatar'] as String?;
-          final List<String> interests =
-          (d['intereses'] as List).cast<String>();
+          final List<String> interests = (d['intereses'] as List).cast<String>();
           final int photosCount = d['photosCount'] as int? ?? 0;
-          final List<String> fotoUrls =
-          (d['fotoUrls'] as List).cast<String>();
+          final List<String> fotoUrls = (d['fotoUrls'] as List).cast<String>();
           final String? superInterest = d['super_interes'] as String?;
           final Map<String, dynamic> socials =
               (d['socials'] as Map?)?.cast<String, dynamic>() ?? {};
           final Map<String, dynamic> marketplaces =
               (d['marketplaces'] as Map?)?.cast<String, dynamic>() ?? {};
 
-          // ---------- SUPER INTERÉS ----------
+          // SUPER INTERÉS
           final List<Widget> superInterestSlivers = [];
           if (superInterest == 'music') {
             superInterestSlivers.add(
@@ -384,16 +370,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     MusicSection(
                       hasSpotify: d['has_spotify'] == true,
-                      topArtists: (d['music_top_artists'] as List)
-                          .cast<Map<String, dynamic>>(),
-                      topTracks: (d['music_top_tracks'] as List)
-                          .cast<Map<String, dynamic>>(),
+                      topArtists:
+                      (d['music_top_artists'] as List).cast<Map<String, dynamic>>(),
+                      topTracks:
+                      (d['music_top_tracks'] as List).cast<Map<String, dynamic>>(),
                       enabled: true,
                       onConnect: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) =>
-                            const MusicSuperInterestScreen()),
+                            builder: (_) => const MusicSuperInterestScreen()),
                       ),
                       onReload: _reloadingMusic ? null : _reloadMusic,
                     ),
@@ -409,20 +394,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           } else if (superInterest == 'gaming') {
             superInterestSlivers.add(
               SliverToBoxAdapter(
-                  child: GamingSection(
-                      data: Map<String, dynamic>.from(
-                          (d['gaming'] as Map?) ?? const {}))),
+                child: GamingSection(
+                  data: Map<String, dynamic>.from((d['gaming'] as Map?) ?? const {}),
+                ),
+              ),
             );
           } else if (superInterest == 'football') {
             superInterestSlivers.add(
               SliverToBoxAdapter(
-                  child: FootballSection(
-                      data: Map<String, dynamic>.from(
-                          (d['football'] as Map?) ?? const {}))),
+                child: FootballSection(
+                  data: Map<String, dynamic>.from((d['football'] as Map?) ?? const {}),
+                ),
+              ),
             );
           } else {
-            superInterestSlivers.add(
-                const SliverToBoxAdapter(child: SizedBox(height: 8)));
+            superInterestSlivers.add(const SliverToBoxAdapter(child: SizedBox(height: 8)));
             superInterestSlivers.add(
               SliverToBoxAdapter(
                 child: SectionCard(
@@ -448,7 +434,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               CustomScrollView(
                 slivers: [
-                  // ---------- HEADER ----------
+                  // HEADER
                   SliverAppBar(
                     pinned: true,
                     expandedHeight: 300,
@@ -465,32 +451,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         photosCount: photosCount,
                         interestsCount: interests.length,
                         onFavorites: _openFavorites,
-                        socials: socials,        // 👈 muestra redes
-                        marketplaces: marketplaces,
                       ),
                     ),
                     leading: Container(
-                      margin:
-                      const EdgeInsets.only(left: 8, top: 6, bottom: 6),
+                      margin: const EdgeInsets.only(left: 8, top: 6, bottom: 6),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.1),
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
-                        icon: const Icon(Icons.arrow_back,
-                            color: Colors.black87),
+                        icon: const Icon(Icons.arrow_back, color: Colors.black87),
                         onPressed: () => Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(
-                              builder: (_) => const HomeScreen()),
+                          MaterialPageRoute(builder: (_) => const HomeScreen()),
                         ),
                       ),
                     ),
                     actions: [
-                      // Editar perfil 👇
+                      // Editar perfil
                       Container(
-                        margin:
-                        const EdgeInsets.only(right: 6, top: 6, bottom: 6),
+                        margin: const EdgeInsets.only(right: 6, top: 6, bottom: 6),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.10),
                           shape: BoxShape.circle,
@@ -503,16 +483,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       // Ajustes
                       Container(
-                        margin:
-                        const EdgeInsets.only(right: 8, top: 6, bottom: 6),
+                        margin: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.10),
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
                           tooltip: 'Ajustes',
-                          icon: const Icon(Icons.settings_outlined,
-                              color: Colors.black87),
+                          icon: const Icon(Icons.settings_outlined, color: Colors.black87),
                           onPressed: _goToSettings,
                         ),
                       ),
@@ -520,16 +498,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     centerTitle: true,
                   ),
 
-                  // ---------- SUPER INTERÉS ----------
+                  // SUPER INTERÉS
                   ...superInterestSlivers,
 
-                  // ---------- TARJETA PRINCIPAL ----------
+                  // TARJETA PRINCIPAL (saludo)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       child: Container(
-                        padding:
-                        const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(18),
@@ -543,44 +520,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         child: Text(
                           '¡Hola, ${(d['nombre'] ?? '') as String}!',
-                          style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                         ),
                       ),
                     ),
                   ),
 
-                  // ---------- MIS FOTOS (solo vista) ----------
+                  // SECCIÓN REDES & MARKETPLACES (nueva sección)
+                  SliverToBoxAdapter(
+                    child: _SocialLinksCard(
+                      socials: socials,
+                      marketplaces: marketplaces,
+                    ),
+                  ),
+
+                  // MIS FOTOS (solo vista)
                   SliverToBoxAdapter(
                     child: PhotosCard(
                       fotoUrls: fotoUrls,
-                      onEdit: () {}, // 👈 sin edición aquí
                     ),
                   ),
 
-                  // ---------- BIO (solo vista) ----------
+                  // BIO (solo vista)
                   SliverToBoxAdapter(
                     child: BioCard(
                       bio: (d['bio'] as String?) ?? '',
-                      onEdit: () {}, // 👈 sin edición aquí
                     ),
                   ),
 
-                  // ---------- INTERESES (solo vista) ----------
+                  // INTERESES (solo vista)
                   SliverToBoxAdapter(
                     child: InterestsCard(
                       intereses: interests,
-                      onEdit: () {}, // 👈 sin edición aquí
                     ),
                   ),
 
-                  // ---------- MI PISO (sin borrar aquí) ----------
+                  // MI PISO (sin borrar aquí)
                   SliverToBoxAdapter(
                     child: FlatCardPremium(
                       flat: d['flat'] as Map<String, dynamic>?,
-                      onDeletePressed:
-                      null, // 👈 borrar piso se hace en EditProfile
+                      onDeletePressed: null, // eliminar piso en EditProfile
                     ),
                   ),
 
@@ -588,14 +567,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
 
-              // ---------- FOOTER: Cerrar sesión ----------
+              // FOOTER: Cerrar sesión
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
                 child: Container(
-                  padding:
-                  const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.96),
                     boxShadow: [
@@ -615,11 +593,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             onPressed: _signOut,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
-                                borderRadius:
-                                BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: const Text(
@@ -648,7 +624,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-// ========== Header con píldoras corregidas + redes sociales ==========
+// ========== Header con píldoras (sin edición) ==========
 class _ProfileHeader extends StatelessWidget {
   final Color accent;
   final Color accentDark;
@@ -659,8 +635,6 @@ class _ProfileHeader extends StatelessWidget {
   final int photosCount;
   final int interestsCount;
   final VoidCallback onFavorites;
-  final Map<String, dynamic> socials;
-  final Map<String, dynamic> marketplaces;
 
   const _ProfileHeader({
     required this.accent,
@@ -672,8 +646,6 @@ class _ProfileHeader extends StatelessWidget {
     required this.photosCount,
     required this.interestsCount,
     required this.onFavorites,
-    required this.socials,
-    required this.marketplaces,
   });
 
   @override
@@ -702,58 +674,41 @@ class _ProfileHeader extends StatelessWidget {
                   gradient: LinearGradient(colors: [accent, accentDark]),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.12),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6))
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    )
                   ],
                 ),
                 child: CircleAvatar(
                   radius: 56,
-                  backgroundImage:
-                  (avatar != null) ? NetworkImage(avatar!) : null,
+                  backgroundImage: (avatar != null) ? NetworkImage(avatar!) : null,
                   backgroundColor: const Color(0x33E3A62F),
-                  child: (avatar == null)
-                      ? Icon(Icons.person, size: 56, color: accent)
-                      : null,
+                  child: (avatar == null) ? Icon(Icons.person, size: 56, color: accent) : null,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
                 '$name${age != null ? ', $age' : ''}',
-                style: const TextStyle(
-                    fontSize: 24, fontWeight: FontWeight.w800),
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
               Text(
                 roleText,
-                style: TextStyle(
-                    color: Colors.black.withOpacity(0.6),
-                    fontSize: 14.5),
+                style: TextStyle(color: Colors.black.withOpacity(0.6), fontSize: 14.5),
               ),
               const SizedBox(height: 14),
-              // Píldoras con contador adentro
+              // Píldoras (con contador dentro)
               Wrap(
                 alignment: WrapAlignment.center,
                 spacing: 10,
                 runSpacing: 8,
                 children: [
-                  StatPillCount(
-                      icon: Icons.photo_camera_outlined,
-                      label: 'Fotos',
-                      count: photosCount),
-                  StatPillCount(
-                      icon: Icons.star_border,
-                      label: 'Intereses',
-                      count: interestsCount),
-                  ActionPill(
-                      icon: Icons.favorite_border,
-                      text: 'Favoritos',
-                      onTap: onFavorites),
+                  StatPillCount(icon: Icons.photo_camera_outlined, label: 'Fotos', count: photosCount),
+                  StatPillCount(icon: Icons.star_border, label: 'Intereses', count: interestsCount),
+                  ActionPill(icon: Icons.favorite_border, text: 'Favoritos', onTap: onFavorites),
                 ],
               ),
-              const SizedBox(height: 12),
-              // Redes sociales (si hay)
-              _SocialRow(socials: socials, marketplaces: marketplaces),
             ],
           ),
         ),
@@ -767,26 +722,23 @@ class StatPillCount extends StatelessWidget {
   final IconData icon;
   final String label;
   final int count;
-  const StatPillCount(
-      {super.key,
-        required this.icon,
-        required this.label,
-        required this.count});
+  const StatPillCount({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.count,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: const Color(0xFFF1D18D)),
         boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 6,
-              offset: const Offset(0, 2))
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6, offset: const Offset(0, 2))
         ],
       ),
       child: Row(
@@ -798,8 +750,7 @@ class StatPillCount extends StatelessWidget {
           Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(width: 8),
           Container(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
               color: const Color(0xFFFFF6E6),
               borderRadius: BorderRadius.circular(999),
@@ -826,8 +777,7 @@ class ActionPill extends StatelessWidget {
   final IconData icon;
   final String text;
   final VoidCallback onTap;
-  const ActionPill(
-      {super.key, required this.icon, required this.text, required this.onTap});
+  const ActionPill({super.key, required this.icon, required this.text, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -835,8 +785,7 @@ class ActionPill extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding:
-        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(.05),
           borderRadius: BorderRadius.circular(999),
@@ -854,15 +803,11 @@ class ActionPill extends StatelessWidget {
   }
 }
 
-// ===== Fila de redes sociales (y marketplaces) =====
-class _SocialRow extends StatelessWidget {
-  final Map<String, dynamic> socials; // {"instagram":"miuser", ...}
-  final Map<String, dynamic> marketplaces; // {"wallapop":"miuser", ...}
-  const _SocialRow({
-    Key? key,
-    required this.socials,
-    required this.marketplaces,
-  }) : super(key: key);
+/// Card “Redes & Tiendas” (estética y enlaces ajustados)
+class _SocialLinksCard extends StatelessWidget {
+  final Map<String, dynamic> socials;      // {"instagram":"miuser|url", ...}
+  final Map<String, dynamic> marketplaces; // {"wallapop":"miuser|url", ...}
+  const _SocialLinksCard({required this.socials, required this.marketplaces});
 
   // plataforma → asset
   static const _icons = <String, String>{
@@ -880,12 +825,18 @@ class _SocialRow extends StatelessWidget {
     'depop': 'assets/marketplaces/depop.png',
   };
 
-  // Normaliza handle o url
+  // Normaliza handle/host a URL
   String? _normalizeUrl(String key, String raw) {
     final v = raw.trim();
     if (v.isEmpty) return null;
+
+    // Si ya es URL con esquema:
     if (v.startsWith('http://') || v.startsWith('https://')) return v;
+
+    // Si parece dominio/host
     if (v.contains('.') && !v.contains(' ')) return 'https://$v';
+
+    // Trata como handle
     final handle = v.startsWith('@') ? v.substring(1) : v;
     switch (key) {
       case 'instagram':
@@ -917,9 +868,11 @@ class _SocialRow extends StatelessWidget {
     if (url == null) return;
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enlace no válido')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enlace no válido')),
+        );
+      }
       return;
     }
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -932,7 +885,7 @@ class _SocialRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Une socials + marketplaces para pintarlo en una única fila (orden fijo)
+    // Construye lista ordenada: redes primero, luego marketplaces
     final entries = <MapEntry<String, String>>[];
 
     void addIfValid(Map<String, dynamic> src, List<String> keys) {
@@ -952,62 +905,156 @@ class _SocialRow extends StatelessWidget {
       'youtube',
       'facebook',
       'linkedin',
-      'twitch'
+      'twitch',
     ]);
     addIfValid(marketplaces, const ['wallapop', 'vinted', 'depop']);
 
-    if (entries.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (entries.isEmpty) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: entries.map((e) {
-          final key = e.key.toLowerCase();
-          final asset = _icons[key];
-          final url = _normalizeUrl(key, e.value);
-
-          Widget icon = const Icon(Icons.link);
-          if (asset != null) {
-            icon = Image.asset(asset, width: 22, height: 22, fit: BoxFit.cover);
-          }
-
-          return InkWell(
-            onTap: () => _openUrl(context, url),
-            borderRadius: BorderRadius.circular(999),
-            child: Container(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.black.withOpacity(0.06)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  icon,
-                  const SizedBox(width: 8),
-                  Text(
-                    key[0].toUpperCase() + key.substring(1),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 14,
+              offset: const Offset(0, 8),
             ),
-          );
-        }).toList(),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Título + subtexto
+              const Text(
+                'Enlaces',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Conecta tus redes y tiendas. Toca para abrir.',
+                style: TextStyle(color: Colors.black.withOpacity(0.6)),
+              ),
+              const SizedBox(height: 14),
+
+              // Grid de chips (mejor lectura que una fila larga)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Calcula columnas según ancho
+                  final maxWidth = constraints.maxWidth;
+                  final crossAxisCount = maxWidth > 640
+                      ? 4
+                      : (maxWidth > 420 ? 3 : 2);
+
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: entries.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 3.4,
+                    ),
+                    itemBuilder: (_, i) {
+                      final e = entries[i];
+                      final key = e.key.toLowerCase();
+                      final asset = _icons[key];
+                      final url = _normalizeUrl(key, e.value);
+
+                      return InkWell(
+                        onTap: () => _openUrl(context, url),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFBFBFD),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.black.withOpacity(0.06)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              if (asset != null)
+                                Image.asset(asset, width: 20, height: 20, fit: BoxFit.contain)
+                              else
+                                const Icon(Icons.link, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    // Nombre plataforma
+                                    Text(
+                                      key[0].toUpperCase() + key.substring(1),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13.5,
+                                      ),
+                                    ),
+                                    // Dominio limpio o handle mostrado
+                                    Text(
+                                      _prettyValue(key, e.value),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black.withOpacity(0.6),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.open_in_new_rounded, size: 18),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  // Muestra un valor "bonito" (dominio/usuario) en la línea secundaria
+  String _prettyValue(String key, String raw) {
+    final v = raw.trim();
+    if (v.startsWith('http://') || v.startsWith('https://')) {
+      final uri = Uri.tryParse(v);
+      if (uri != null) {
+        final host = uri.host.replaceFirst('www.', '');
+        // Para algunas redes, mostrar @handle si está presente en path
+        if (key == 'tiktok' && uri.pathSegments.isNotEmpty) {
+          return '@${uri.pathSegments.last.replaceAll('@', '')} • $host';
+        }
+        if ((key == 'instagram' || key == 'x' || key == 'twitter') && uri.pathSegments.isNotEmpty) {
+          return '@${uri.pathSegments.firstWhere((s) => s.isNotEmpty, orElse: () => '')} • $host';
+        }
+        return host;
+      }
+    }
+    // handle plano
+    final handle = v.startsWith('@') ? v : '@$v';
+    return handle;
   }
 }
