@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:io' show File;
+
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +13,21 @@ import 'package:record/record.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+// 👇 Riverpod + controlador del CardGame
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../games/card_game/state/card_room_controller.dart';
+import '../games/card_game/state/card_room_providers.dart';
+
+// 👇 Añadidos para el juego y el marcador
+import 'package:flame/game.dart';
+import '../games/card_game/card_game_screen.dart';
+import '../games/chilli_bird_game.dart';
+import '../widgets/group_game_scoreboard.dart';
+
 import '../services/group_service.dart';
 import 'group_detail_screen.dart';
 
-class GroupChatScreen extends StatefulWidget {
+class GroupChatScreen extends ConsumerStatefulWidget {
   final String groupId;
   final String? heroName; // opcional para transición rápida
   final String? heroPhoto;
@@ -28,10 +40,10 @@ class GroupChatScreen extends StatefulWidget {
   });
 
   @override
-  State<GroupChatScreen> createState() => _GroupChatScreenState();
+  ConsumerState<GroupChatScreen> createState() => _GroupChatScreenState();
 }
 
-class _GroupChatScreenState extends State<GroupChatScreen> {
+class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   static const Color accent = Color(0xFFE3A62F);
   static const String _bucket = 'group.media';
   final _sb = Supabase.instance.client;
@@ -45,6 +57,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   bool _loading = true;
   bool _sending = false;
+  bool _showEmojiPicker = false;
 
   // Reply
   Map<String, dynamic>? _replyTo;
@@ -164,6 +177,56 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       );
     }
     return map;
+  }
+
+  void _openGamesMenu() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Elige un juego', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                const SizedBox(height: 12),
+                _GameCardTile(
+                  title: '¡Vuela Chilli!',
+                  subtitle: 'Arcade rápido. Supera tu récord.',
+                  icon: Icons.flight_takeoff,
+                  cta: 'Jugar',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openGame(); // tu método existente
+                  },
+                ),
+                const SizedBox(height: 10),
+                _GameCardTile(
+                  title: 'Hazte el gracioso y gana',
+                  subtitle: 'Cartas ingeniosas. Un juez por ronda.',
+                  icon: Icons.style_rounded,
+                  cta: 'Crear sala',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      // 👉 Crea lobby + anuncia invitación en el chat
+                      final ctrl = ref.read(cardRoomControllerProvider.notifier);
+                      await ctrl.createLobbyAndAnnounce(widget.groupId);
+                      _toast('Invitación enviada al grupo 🎴');
+                    } catch (e) {
+                      _toast('No se pudo crear la sala: $e');
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   String? _publicPhotoUrl(String? keyOrUrl) {
@@ -300,9 +363,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final yday = today.subtract(const Duration(days: 1));
     if (dd == today) return 'Hoy';
     if (dd == yday) return 'Ayer';
-    const meses = [
-      'ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'
-    ];
+    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
     return '${dd.day} ${meses[dd.month - 1]} ${dd.year}';
   }
 
@@ -343,6 +404,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (tipo == 'audio') return '🎤 Audio';
     if (tipo == 'encuesta') return '🗳️ Encuesta';
     if (tipo == 'reaction') return 'Reacción';
+    if (tipo == 'game_score') return '🎮 Puntuación de juego';
+    if (tipo == 'card_game_invite') return '🎴 Invitación a partida';
     return 'mensaje';
   }
 
@@ -351,6 +414,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final meId = _sb.auth.currentUser?.id;
     if (uid == meId) return 'Tú';
     return _members[uid]?.name ?? 'Usuario';
+  }
+
+  // Extra: castear dinámicos a int de forma segura
+  int _asInt(dynamic v, [int fallback = 0]) {
+    if (v is int) return v;
+    if (v is double) return v.round();
+    if (v is String) return int.tryParse(v) ?? fallback;
+    return fallback;
   }
 
   // ====== PICKERS / ACTIONS ======
@@ -551,6 +622,94 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }, scrollToEnd: false);
   }
 
+  // ====== GAME & SCOREBOARD ======
+
+  /// Mapea los mensajes tipo `game_score` a un ranking con el mejor resultado por usuario.
+  List<GroupGameScore> _buildLeaderboard() {
+    // userId -> bestScore
+    final best = <String, int>{};
+    for (final m in _messages) {
+      if ((m['tipo'] ?? '') != 'game_score') continue;
+      final j = _safeJson(m['contenido'] ?? '{}');
+      final uid = (m['emisor_id'] ?? '') as String;
+      final score = _asInt(j['score'], 0);
+      if (uid.isEmpty) continue;
+      final prev = best[uid] ?? 0;
+      if (score > prev) best[uid] = score;
+    }
+
+    // Construimos objetos con nombre y avatar desde _members
+    final list = <GroupGameScore>[];
+    best.forEach((uid, sc) {
+      final info = _members[uid];
+      list.add(GroupGameScore(
+        userId: uid,
+        displayName: info?.name ?? 'Usuario',
+        bestScore: sc,
+        avatarUrl: info?.avatarUrl,
+      ));
+    });
+
+    list.sort((a, b) => b.bestScore.compareTo(a.bestScore));
+    return list;
+  }
+
+  void _openScoreboard() {
+    final scores = _buildLeaderboard();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: false,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: GroupGameScoreboard(
+          title: '¡Vuela Chilli, vuela!',
+          scores: scores,
+          pinned: false,
+          onUnpin: () {
+            Navigator.pop(context);
+          },
+          onReset: () async {
+            try {
+              // 1) Borrar puntuaciones en la BD
+              await _sb
+                  .from('grupo_mensajes')
+                  .delete()
+                  .eq('grupo_id', widget.groupId)
+                  .eq('tipo', 'game_score');
+
+              // 2) Limpiar en memoria
+              if (mounted) {
+                setState(() {
+                  _messages.removeWhere((m) => (m['tipo'] ?? '') == 'game_score');
+                });
+              }
+
+              // 3) Cerrar el modal y avisar
+              if (context.mounted) Navigator.pop(context);
+              _toast('Marcador reiniciado');
+            } catch (e) {
+              _toast('No se pudo reiniciar: $e');
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openGame() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ChilliBirdGameScreen(
+          onSubmitScore: (score) async {
+            await _sendStructured('game_score', {'score': score});
+          },
+          onOpenScoreboard: _openScoreboard,
+        ),
+      ),
+    );
+  }
+
   // ====== JUMP TO DATE ======
   Future<void> _jumpToDate() async {
     final first = _messages.isEmpty
@@ -650,6 +809,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Marcador',
+            icon: const Icon(Icons.emoji_events_outlined),
+            onPressed: _openScoreboard,
+          ),
+          IconButton(
             tooltip: 'Saltar a fecha',
             icon: const Icon(Icons.calendar_today_outlined),
             onPressed: _jumpToDate,
@@ -698,11 +862,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                 final content = m['contenido'] ?? '';
 
                 // Separador de día
+                DateTime? prevCreatedAt;
+                if (i > 0) {
+                  prevCreatedAt = DateTime.tryParse(visible[i - 1]['created_at'] ?? '');
+                }
                 final showDayChip = (i == 0) ||
                     (createdAt != null &&
-                        DateTime.tryParse(visible[i - 1]['created_at'] ?? '') != null &&
-                        DateTime.parse(visible[i - 1]['created_at']).toLocal().day !=
-                            createdAt.toLocal().day);
+                        prevCreatedAt != null &&
+                        prevCreatedAt.toLocal().day != createdAt.toLocal().day);
 
                 final reactionsFor = reactionsIdx[m['id'] ?? ''] ?? {};
                 final reactionRow = reactionsFor.isEmpty
@@ -752,7 +919,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   final key = (j['key'] ?? '') as String;
                   final url = (j['url'] ?? '') as String;
                   final ref = key.isNotEmpty ? key : url;
-                  final dur = (j['dur'] ?? 0) is int ? j['dur'] as int : 0;
+                  final seconds = _asInt(j['dur'], 0);
                   bubble = _AudioBubble(
                     isMe: isMe,
                     ref: ref,
@@ -760,12 +927,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                     accent: accent,
                     sb: _sb,
                     bucket: _bucket,
-                    seconds: dur,
+                    seconds: seconds,
                   );
                 } else if (tipo == 'encuesta') {
                   final j = content is String ? _safeJson(content) : Map<String, dynamic>.from(content);
                   final pollId = (m['id'] ?? '') as String;
-                  final votesForThis = votesIdx[pollId] ?? {};
+                  final votesForThis = _votesIndex()[pollId] ?? {};
                   bubble = _PollBubble(
                     isMe: isMe,
                     data: j,
@@ -795,6 +962,26 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       }
                     },
                   );
+                } else if (tipo == 'game_score') {
+                  final j = content is String ? _safeJson(content) : Map<String, dynamic>.from(content);
+                  final score = _asInt(j['score'], 0);
+                  bubble = _GameScoreBubble(
+                    isMe: isMe,
+                    userName: isMe ? 'Tú' : name,
+                    score: score,
+                    time: time,
+                    accent: accent,
+                    onViewScoreboard: _openScoreboard,
+                  );
+                } else if (tipo == 'card_game_invite') {
+                  final data = content is String ? _safeJson(content) : Map<String, dynamic>.from(content);
+                  bubble = _CardGameInviteBubble(
+                    isMe: isMe,
+                    data: data,
+                    time: time,
+                    accent: accent,
+                    groupId: widget.groupId,
+                  );
                 } else {
                   // texto
                   bubble = _MessageBubble(isMe: isMe, text: content as String, time: time, accent: accent);
@@ -823,7 +1010,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                             ),
                           ),
                         if (isMe)
-                        // Mis mensajes (derecha), header opcional “Tú”
+                        // Mis mensajes (derecha)
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
@@ -927,8 +1114,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           _BottomQuickMenu(
             onTapPhotos: _pickFromGallery,
             onTapCamera: _openCamera,
-            onTapVoice: _startRecord, // <-- ahora solo inicia
+            onTapVoice: _startRecord, // <-- inicia
             onTapPoll: _openPollCreator,
+            onTapGame: _openGamesMenu,     // <-- NUEVO: juegos (incluye CardGame)
           ),
 
           // ====== COMPOSER ======
@@ -996,7 +1184,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                       ),
                       const SizedBox(width: 8),
 
-                      // Botón Enviar (siempre disponible)
+                      // Botón Enviar
                       CircleAvatar(
                         radius: 24,
                         backgroundColor: accent,
@@ -1056,6 +1244,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               await Clipboard.setData(ClipboardData(text: (j['text'] ?? '') as String));
             }
             _toast('Texto copiado');
+          },
+        ),
+      if (tipo == 'game_score')
+        ListTile(
+          leading: const Icon(Icons.emoji_events_outlined),
+          title: const Text('Ver marcador'),
+          onTap: () {
+            Navigator.pop(context);
+            _openScoreboard();
           },
         ),
       if (isMe)
@@ -1384,7 +1581,6 @@ class _StorageImageState extends State<_StorageImage> {
     if (widget.ref.startsWith('http')) {
       setState(() => _url = widget.ref);
     } else {
-      // asumimos key -> firmamos desde el principio (funciona en bucket privado)
       final signed = await widget.sb.storage.from(widget.bucket).createSignedUrl(widget.ref, 60 * 60 * 24 * 7);
       setState(() => _url = signed);
     }
@@ -1396,7 +1592,6 @@ class _StorageImageState extends State<_StorageImage> {
       final seg = uri.pathSegments;
       final idx = seg.indexOf('public');
       if (idx >= 0 && idx + 2 < seg.length) {
-        // .../object/public/{bucket}/{key...}
         final bkt = seg[idx + 1]; // bucket
         if (bkt != widget.bucket) return null;
         final keyParts = seg.sublist(idx + 2);
@@ -1433,7 +1628,6 @@ class _StorageImageState extends State<_StorageImage> {
       fit: widget.fit,
       errorBuilder: (c, e, s) {
         if (!_triedSigned) {
-          // reintenta con signed URL
           _retryWithSigned();
           return const Center(child: CircularProgressIndicator(strokeWidth: 2));
         }
@@ -1729,6 +1923,69 @@ class _PollBubble extends StatelessWidget {
   }
 }
 
+// Mensaje de puntuación de juego
+class _GameScoreBubble extends StatelessWidget {
+  final bool isMe;
+  final String userName;
+  final int score;
+  final String time;
+  final Color accent;
+  final VoidCallback onViewScoreboard;
+
+  const _GameScoreBubble({
+    required this.isMe,
+    required this.userName,
+    required this.score,
+    required this.time,
+    required this.accent,
+    required this.onViewScoreboard,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isMe ? accent : Colors.white;
+    final fg = isMe ? Colors.white : Colors.black87;
+    return Container(
+      width: MediaQuery.of(context).size.width * .8,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(.05), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.videogame_asset_outlined),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$userName ha conseguido $score pts en Chilli Bird',
+                style: TextStyle(color: fg, fontWeight: FontWeight.w900),
+              ),
+            ),
+            Text(time, style: TextStyle(color: fg.withOpacity(.85), fontSize: 11, fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: onViewScoreboard,
+              icon: const Icon(Icons.emoji_events_outlined, size: 18),
+              label: const Text('Ver marcador'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: fg,
+                side: BorderSide(color: fg.withOpacity(.6)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // Reply (burbuja con cabecera de cita)
 class _ReplyBubble extends StatelessWidget {
   final bool isMe;
@@ -1836,12 +2093,14 @@ class _BottomQuickMenu extends StatelessWidget {
   final VoidCallback onTapCamera;
   final VoidCallback onTapVoice;
   final VoidCallback onTapPoll;
+  final VoidCallback onTapGame; // <-- NUEVO
 
   const _BottomQuickMenu({
     required this.onTapPhotos,
     required this.onTapCamera,
     required this.onTapVoice,
     required this.onTapPoll,
+    required this.onTapGame,
   });
 
   @override
@@ -1883,6 +2142,12 @@ class _BottomQuickMenu extends StatelessWidget {
             label: 'Encuesta',
             onTap: onTapPoll,
             glow: true,
+          ),
+          const SizedBox(width: 8),
+          _QuickAction(
+            icon: Icons.videogame_asset_rounded,
+            label: 'Juego',
+            onTap: onTapGame,
           ),
         ],
       ),
@@ -1976,6 +2241,354 @@ class _ReplyComposerBar extends StatelessWidget {
             ]),
           ),
           IconButton(icon: const Icon(Icons.close), onPressed: onCancel),
+        ],
+      ),
+    );
+  }
+}
+
+/* ===========================
+ * Mensaje CTA de invitación al CardGame (FIX)
+ * =========================== */
+class _CardGameInviteBubble extends ConsumerStatefulWidget {
+  final bool isMe;
+  final Map<String, dynamic> data; // { game, title, room_id, state, cta, created_by, message }
+  final String time;
+  final Color accent;
+  final String groupId;
+
+  const _CardGameInviteBubble({
+    required this.isMe,
+    required this.data,
+    required this.time,
+    required this.accent,
+    required this.groupId,
+  });
+
+  @override
+  ConsumerState<_CardGameInviteBubble> createState() => _CardGameInviteBubbleState();
+}
+
+class _CardGameInviteBubbleState extends ConsumerState<_CardGameInviteBubble> {
+  final _sb = Supabase.instance.client;
+  bool _busy = false;
+
+  // Mapea status de BD a uno de lobby|playing|finished
+  String _uiStateFromDb(String? status) {
+    final s = (status ?? '').toLowerCase();
+    const lobby = {
+      'waiting','lobby','open','pending','created','idle',
+    };
+    const playing = {
+      'playing','active','in_progress','running','started',
+    };
+    const finished = {
+      'finished','ended','closed','complete','completed','done','stopped',
+    };
+    if (lobby.contains(s)) return 'lobby';
+    if (playing.contains(s)) return 'playing';
+    if (finished.contains(s)) return 'finished';
+    // fallback sensato
+    return 'lobby';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final me = _sb.auth.currentUser!.id;
+    final roomId = (widget.data['room_id'] ?? '') as String;
+    final title = (widget.data['title'] ?? 'Hazte el gracioso y gana') as String;
+    final createdBy = (widget.data['created_by'] ?? '') as String;
+
+    final bg = widget.isMe ? widget.accent : Colors.white;
+    final fg = widget.isMe ? Colors.white : Colors.black87;
+
+    // --- STREAMS CORRECTOS A TU ESQUEMA ---
+    final playersStream = _sb
+        .from('game_room_players')
+        .stream(primaryKey: ['room_id', 'user_id'])
+        .eq('room_id', roomId);
+
+    final roomStream = _sb
+        .from('game_rooms')
+        .stream(primaryKey: ['id'])
+        .eq('id', roomId)
+        .limit(1);
+
+    return Container(
+      width: MediaQuery.of(context).size.width * .9,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(.05), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.style_rounded, color: fg),
+            const SizedBox(width: 8),
+            Expanded(child: Text(title, style: TextStyle(color: fg, fontWeight: FontWeight.w900))),
+            Text(widget.time, style: TextStyle(color: fg.withOpacity(.85), fontSize: 11, fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+            (widget.data['message'] ?? 'Nueva partida') as String,
+            style: TextStyle(color: fg.withOpacity(.95), fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+
+          // Estado de sala + jugadores
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: roomStream,
+            builder: (context, roomSnap) {
+              final roomExists = (roomSnap.data?.isNotEmpty ?? false);
+              final statusDb = roomExists ? (roomSnap.data!.first['status'] as String?) : 'finished';
+              final state = _uiStateFromDb(statusDb);
+
+              return StreamBuilder<List<Map<String, dynamic>>>(
+                stream: playersStream,
+                builder: (context, snap) {
+                  final players = (snap.data ?? const <Map<String, dynamic>>[]);
+                  final joined = players.any((p) => (p['user_id'] as String?) == me);
+                  final meRow = players.firstWhere(
+                        (p) => (p['user_id'] as String?) == me,
+                    orElse: () => const {},
+                  );
+                  final meReady = (meRow['is_ready'] as bool?) == true;
+                  final total = players.length;
+                  final readyCount = players.where((p) => (p['is_ready'] as bool?) == true).length;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        _SmallChip(icon: Icons.people_alt_rounded, label: '$total jugadores · $readyCount listos', fg: fg),
+                        const SizedBox(width: 6),
+                        _SmallChip(
+                          icon: state == 'playing'
+                              ? Icons.play_circle_fill
+                              : (state == 'finished' ? Icons.flag : Icons.hourglass_top),
+                          label: state,
+                          fg: fg,
+                        ),
+                      ]),
+                      const SizedBox(height: 12),
+
+                      if (state == 'lobby')
+                        _buildLobbyActions(context, roomExists, roomId, createdBy, joined, meReady, total, readyCount, fg),
+                      if (state == 'playing')
+                        _buildPlayingActions(context, roomExists, roomId, createdBy, fg),
+                      if (state == 'finished')
+                        Text('Partida finalizada', style: TextStyle(color: fg.withOpacity(.9), fontWeight: FontWeight.w800)),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLobbyActions(
+      BuildContext context,
+      bool roomExists,
+      String roomId,
+      String createdBy,
+      bool joined,
+      bool meReady,
+      int total,
+      int readyCount,
+      Color fg,
+      ) {
+    final isCreator = createdBy == _sb.auth.currentUser!.id;
+    final minPlayers = (widget.data['min_players'] is int) ? widget.data['min_players'] as int : 3;
+    final canStart = roomExists && total >= minPlayers && readyCount == total;
+
+    return Row(
+      children: [
+        if (!joined)
+          FilledButton.icon(
+            onPressed: (!roomExists || _busy)
+                ? null
+                : () async {
+              setState(() => _busy = true);
+              try {
+                await ref.read(cardRoomControllerProvider.notifier).joinLobby(roomId);
+                _snack(context, 'Te has unido a la sala');
+              } catch (e) {
+                _snack(context, 'No se pudo unir: $e');
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+            icon: const Icon(Icons.group_add_rounded),
+            label: const Text('Unirme'),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: (!roomExists || _busy)
+                ? null
+                : () async {
+              setState(() => _busy = true);
+              try {
+                await _setReadyUpsert(roomId, !meReady);
+              } catch (e) {
+                _snack(context, 'No se pudo actualizar listo: $e');
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+            icon: Icon(meReady ? Icons.check_circle : Icons.radio_button_unchecked),
+            label: Text(meReady ? 'Listo' : 'No listo'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: meReady ? Colors.green.shade800 : fg,
+              side: BorderSide(color: meReady ? Colors.green.shade400 : fg.withOpacity(.6)),
+            ),
+          ),
+        const SizedBox(width: 8),
+        if (isCreator)
+          FilledButton.icon(
+            onPressed: (!canStart || _busy)
+                ? null
+                : () async {
+              setState(() => _busy = true);
+              try {
+                await ref.read(cardRoomControllerProvider.notifier).startGameFromLobby(roomId);
+              } catch (e) {
+                _snack(context, e.toString());
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Empezar'),
+          ),
+        const Spacer(),
+        TextButton.icon(
+          onPressed: roomExists
+              ? () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CardGameScreen(
+                  groupId: widget.groupId,
+                  initialRoomId: roomId,
+                ),
+              ),
+            );
+          }
+              : null,
+          icon: const Icon(Icons.open_in_new_rounded),
+          label: const Text('Abrir juego'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlayingActions(BuildContext context, bool roomExists, String roomId, String createdBy, Color fg) {
+    final isCreator = createdBy == _sb.auth.currentUser!.id;
+    return Row(
+      children: [
+        FilledButton.icon(
+          onPressed: roomExists
+              ? () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CardGameScreen(
+                  groupId: widget.groupId,
+                  initialRoomId: roomId,
+                ),
+              ),
+            );
+          }
+              : null,
+          icon: const Icon(Icons.sports_esports_rounded),
+          label: const Text('Abrir juego'),
+        ),
+        const SizedBox(width: 8),
+        if (isCreator)
+          OutlinedButton.icon(
+            onPressed: (!roomExists || _busy)
+                ? null
+                : () async {
+              setState(() => _busy = true);
+              try {
+                await ref.read(cardRoomControllerProvider.notifier).endGame(roomId);
+              } catch (e) {
+                _snack(context, 'No se pudo finalizar: $e');
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+            icon: const Icon(Icons.stop_circle_outlined),
+            label: const Text('Finalizar'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red.shade800,
+              side: BorderSide(color: Colors.red.shade300),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _snack(BuildContext ctx, String msg) {
+    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _setReadyUpsert(String roomId, bool ready) async {
+    final me = _sb.auth.currentUser!.id;
+    try {
+      await _sb
+          .from('game_room_players')
+          .upsert(
+        {
+          'room_id': roomId,
+          'user_id': me,
+          'is_ready': ready,
+        },
+        onConflict: 'room_id,user_id', // PK correcta
+      )
+          .select()
+          .maybeSingle();
+    } on PostgrestException {
+      // Fallback si el upsert no entra por alguna policy rara
+      await _sb.from('game_room_players').insert({
+        'room_id': roomId,
+        'user_id': me,
+        'is_ready': ready,
+      });
+    }
+  }
+
+
+
+}
+
+
+class _SmallChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color fg;
+  const _SmallChip({required this.icon, required this.label, required this.fg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.w800)),
         ],
       ),
     );
@@ -2121,6 +2734,147 @@ class _PollCreatorSheetState extends State<_PollCreatorSheet> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/* ===========================
+ * Pantalla simple para jugar Chilli Bird (Flame)
+ * =========================== */
+class _ChilliBirdGameScreen extends StatefulWidget {
+  final void Function(int score) onSubmitScore;
+  final VoidCallback onOpenScoreboard;
+
+  const _ChilliBirdGameScreen({
+    required this.onSubmitScore,
+    required this.onOpenScoreboard,
+  });
+
+  @override
+  State<_ChilliBirdGameScreen> createState() => _ChilliBirdGameScreenState();
+}
+
+class _ChilliBirdGameScreenState extends State<_ChilliBirdGameScreen> {
+  late final ChilliBirdGame _game;
+  Timer? _ticker; // para refrescar la AppBar con la puntuación actual
+
+  // 👉 estados para auto-envío
+  GameState? _prevState;
+  bool _submittedThisRun = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _game = ChilliBirdGame();
+    _prevState = _game.state;
+
+    // Ticker ligero para actualizar la AppBar y vigilar cambios de estado
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!mounted) return;
+
+      // Detectar transición de ready->playing: comienza nueva carrera
+      if (_prevState != GameState.playing && _game.state == GameState.playing) {
+        _submittedThisRun = false;
+      }
+
+      // Detectar transición a DEAD y auto-enviar una vez
+      if (_game.state == GameState.dead && !_submittedThisRun) {
+        _submittedThisRun = true;
+        final s = _game.score;
+        widget.onSubmitScore(s);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Puntuación enviada: $s pts')),
+        );
+      }
+
+      _prevState = _game.state;
+      setState(() {}); // refresca el título con los puntos
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDead = _game.state == GameState.dead;
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F1115),
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Row(
+          children: [
+            const Icon(Icons.flight, size: 18),
+            const SizedBox(width: 8),
+            Text('Chilli Bird · Pts: ${_game.score}'),
+            if (isDead && _submittedThisRun) ...[
+              const SizedBox(width: 10),
+              const Icon(Icons.check_circle, size: 18, color: Colors.greenAccent),
+              const SizedBox(width: 4),
+              const Text('Enviado', style: TextStyle(fontSize: 12)),
+            ],
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Marcador',
+            icon: const Icon(Icons.emoji_events_outlined),
+            onPressed: widget.onOpenScoreboard,
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: GameWidget(game: _game),
+    );
+  }
+}
+
+class _GameCardTile extends StatelessWidget {
+  final String title, subtitle, cta;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _GameCardTile({required this.title, required this.subtitle, required this.icon, required this.cta, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFBFBFD),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(.05), blurRadius: 12, offset: const Offset(0, 6))],
+          border: Border.all(color: Colors.black.withOpacity(.06)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: const Color(0xFFE3A62F).withOpacity(.15),
+              child: Icon(icon, color: const Color(0xFFE3A62F)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                const SizedBox(height: 4),
+                Text(subtitle, style: TextStyle(color: Colors.black.withOpacity(.6))),
+              ]),
+            ),
+            const SizedBox(width: 12),
+            FilledButton(
+              onPressed: onTap,
+              child: Text(cta),
+            ),
+          ],
         ),
       ),
     );

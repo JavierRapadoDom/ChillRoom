@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   audioplayers_windows
   desktop_webview_window
+  emoji_picker_flutter
   file_selector_windows
   record_windows
   share_plus

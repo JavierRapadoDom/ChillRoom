@@ -22,7 +22,7 @@ import '../features/super_interests/spotify_auth_client.dart';
 import '../features/super_interests/super_interests_choice_screen.dart';
 
 // Secciones y tarjetas refactorizadas
-import '../widgets/profile/sections/music_section.dart';
+import '../widgets/profile/sections/music_section.dart'; // 👈 sustituye al antiguo music_section_spotify.dart
 import '../widgets/profile/sections/gaming_section.dart';
 import '../widgets/profile/sections/football_section.dart';
 import '../widgets/profile/cards.dart';
@@ -124,6 +124,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     List<Map<String, dynamic>> topArtists = const [];
     List<Map<String, dynamic>> topTracks = const [];
 
+    // Bloque musical compatible (siData puede venir plano o anidado en "music")
     Map<String, dynamic> musicBlock;
     if (siData.containsKey('music') && siData['music'] is Map) {
       musicBlock = Map<String, dynamic>.from(siData['music'] as Map);
@@ -144,6 +145,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .toList();
     }
 
+    // Si el super interés es música y no hay tops guardados pero sí token, intenta traerlos
     if ((superInterestRaw == 'music') && topArtists.isEmpty && topTracks.isEmpty && hasSpotify) {
       try {
         topArtists = await SpotifyAuthClient.instance.getTopArtists(limit: 8);
@@ -217,6 +219,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'has_spotify': hasSpotify || hasMusicPrefs,
       'music_top_artists': topArtists,
       'music_top_tracks': topTracks,
+      'music_data': musicBlock, // 👈 añadimos el bloque con favorite_artist, defining_song, genre, artist_image_url, album_cover_url...
 
       // Gaming / Football
       'gaming': gamingData,
@@ -368,20 +371,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
               SliverToBoxAdapter(
                 child: Column(
                   children: [
+                    // 👇 Nueva sección de música que usa los assets cacheados
                     MusicSection(
-                      hasSpotify: d['has_spotify'] == true,
-                      topArtists:
-                      (d['music_top_artists'] as List).cast<Map<String, dynamic>>(),
-                      topTracks:
-                      (d['music_top_tracks'] as List).cast<Map<String, dynamic>>(),
-                      enabled: true,
-                      onConnect: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const MusicSuperInterestScreen()),
+                      data: Map<String, dynamic>.from(
+                        (d['music_data'] as Map?) ?? const {},
                       ),
-                      onReload: _reloadingMusic ? null : _reloadMusic,
                     ),
+                    // (Opcional) Botón para abrir MusicSuperInterestScreen si quieres editar gustos
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const MusicSuperInterestScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.edit),
+                          label: const Text('Editar gustos musicales'),
+                        ),
+                      ),
+                    ),
+                    // (Opcional) Si sigues teniendo refresh de tops Spotify:
                     if (_reloadingMusic)
                       const Padding(
                         padding: EdgeInsets.only(top: 8, bottom: 4),
@@ -947,9 +962,8 @@ class _SocialLinksCard extends StatelessWidget {
                 builder: (context, constraints) {
                   // Calcula columnas según ancho
                   final maxWidth = constraints.maxWidth;
-                  final crossAxisCount = maxWidth > 640
-                      ? 4
-                      : (maxWidth > 420 ? 3 : 2);
+                  final crossAxisCount =
+                  maxWidth > 640 ? 4 : (maxWidth > 420 ? 3 : 2);
 
                   return GridView.builder(
                     shrinkWrap: true,

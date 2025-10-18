@@ -59,6 +59,7 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
     super.dispose();
   }
 
+  // --- Métodos Spotify (se dejan por compatibilidad futura) ---
   Future<void> _connect() async {
     setState(() => _loading = true);
     try {
@@ -103,7 +104,7 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
       final uid = Supabase.instance.client.auth.currentUser?.id;
       if (uid == null) return;
 
-      // Token Spotify => cargar perfil /me
+      // Token Spotify => cargar perfil /me (queda inutilizado visualmente)
       final rowToken = await Supabase.instance.client
           .from('spotify_tokens')
           .select('user_id')
@@ -131,7 +132,7 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
         }
       }
 
-      // 2) Si hay super_interes_data en perfiles, lo usamos para pre-cargar
+      // 2) super_interes_data
       final rowProfile = await Supabase.instance.client
           .from('perfiles')
           .select('super_interes, super_interes_data')
@@ -189,12 +190,43 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
           .from('user_music_prefs')
           .upsert(prefsPayload, onConflict: 'user_id');
 
-      // 2) Obtener (si hay Spotify) los TOPS normalizados
+      // 2) Resolver assets (TheAudioDB + MB/CAA) -> cache + URL
+      String? artistImageUrl;
+      String? albumCoverUrl;
+      try {
+        if (favArtist.isNotEmpty) {
+          final res = await Supabase.instance.client.functions.invoke(
+            'resolve-artist-assets',
+            body: {
+              'artistName': favArtist,
+              // Pasamos la canción como "albumTitle" por si la función puede
+              // sacar portada de track/álbum (internamente ya intenta ambos).
+              'songOrAlbumTitle': defSong,
+            },
+          );
+          final data = (res.data is Map) ? (res.data as Map).cast<String, dynamic>() : null;
+          if (data != null) {
+            final artist = (data['artist'] is Map)
+                ? (data['artist'] as Map).cast<String, dynamic>()
+                : null;
+            final album = (data['album'] is Map)
+                ? (data['album'] as Map).cast<String, dynamic>()
+                : null;
+
+            artistImageUrl = (artist?['imageUrl'] as String?) ?? artistImageUrl;
+            albumCoverUrl = (album?['imageUrl'] as String?) ?? albumCoverUrl;
+          }
+        }
+      } catch (e) {
+        debugPrint('resolve-artist-assets failed: $e');
+        // No interrumpimos el flujo: la UI usará fallback si no hay imagen.
+      }
+
+      // 3) Tops Spotify (deshabilitado visualmente; mantenemos por compat)
       List<Map<String, dynamic>> topArtists = const [];
       List<Map<String, dynamic>> topTracks = const [];
       if (_me != null) {
         try {
-          // Estos métodos deben devolver listas de mapas ya normalizadas o crudas de Spotify.
           final artists = await SpotifyAuthClient.instance.getTopArtists(
             limit: 5,
             timeRange: 'short_term',
@@ -204,36 +236,28 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
             timeRange: 'short_term',
           );
 
-          // Normalizamos por si vinieran crudas
           topArtists = artists.map<Map<String, dynamic>>((a) {
             final name = a['name'] ?? a['artist'] ?? '';
             String? image;
-            // soporta shape: {'images':[{'url':...}] } o {'image':...}
             if (a['image'] is String) {
               image = a['image'] as String;
             } else if (a['images'] is List && (a['images'] as List).isNotEmpty) {
               final first = (a['images'] as List).first;
               if (first is Map && first['url'] is String) image = first['url'] as String;
             }
-            return {
-              'name': name,
-              'image': image,
-              'url': a['url'],
-            };
+            return {'name': name, 'image': image, 'url': a['url']};
           }).toList();
 
           topTracks = tracks.map<Map<String, dynamic>>((t) {
             final name = t['name'] ?? '';
             String? artist;
             String? image;
-            // artistas: soporta {'artist':'...'} o {'artists':[{'name':'...'}]}
             if (t['artist'] is String) {
               artist = t['artist'] as String;
             } else if (t['artists'] is List && (t['artists'] as List).isNotEmpty) {
               final a0 = (t['artists'] as List).first;
               if (a0 is Map && a0['name'] is String) artist = a0['name'] as String;
             }
-            // imagen: soporta {'image':'...'} o {'album':{'images':[{'url':...}]}}
             if (t['image'] is String) {
               image = t['image'] as String;
             } else if (t['album'] is Map) {
@@ -243,21 +267,13 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
                 if (first is Map && first['url'] is String) image = first['url'] as String;
               }
             }
-            return {
-              'name': name,
-              'artist': artist,
-              'image': image,
-              'url': t['url'],
-            };
+            return {'name': name, 'artist': artist, 'image': image, 'url': t['url']};
           }).toList();
         } catch (e) {
-          // No rompemos el guardado si falla el fetch de tops.
-          // El perfil seguirá mostrando los favoritos manuales.
           debugPrint('No se pudieron obtener TOPS de Spotify: $e');
         }
       }
 
-      // 3) Marcar super_interes y persistir metadata JSON (incluye TOPS si los hay)
       final spotifyProfile = _me == null
           ? null
           : {
@@ -267,12 +283,15 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
         'images': _me!['images'],
       };
 
+      // 4) super_interes_data (añadimos URLs resueltas si existen)
       final siData = <String, dynamic>{
         'favorite_artist': favArtist,
         'defining_song': defSong,
         'favorite_genre': favGenre,
         'spotify_profile': spotifyProfile,
         'updated_at': nowIso,
+        if (artistImageUrl != null) 'artist_image_url': artistImageUrl,
+        if (albumCoverUrl != null) 'album_cover_url': albumCoverUrl,
         if (topArtists.isNotEmpty) 'top_artists': topArtists,
         if (topTracks.isNotEmpty) 'top_tracks': topTracks,
       };
@@ -301,11 +320,11 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
     }
   }
 
+
   // ---------- UI helpers ----------
 
-  Widget _header(bool connected) {
-    final name = _me?['display_name'] as String?;
-    final email = (_me?['email'] as String?) ?? '';
+  Widget _header() {
+    // Forzamos experiencia "Próximamente" sin mostrar estado conectado/desconectado
     final imageUrl = (_me?['images'] is List && (_me!['images'] as List).isNotEmpty)
         ? ((_me!['images'][0]['url']) as String?)
         : null;
@@ -329,10 +348,8 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
               child: CircleAvatar(
                 radius: 28,
                 backgroundColor: Colors.white10,
-                backgroundImage: (connected && imageUrl != null)
-                    ? NetworkImage(imageUrl)
-                    : null,
-                child: (!connected || imageUrl == null)
+                backgroundImage: (imageUrl != null) ? NetworkImage(imageUrl) : null,
+                child: (imageUrl == null)
                     ? const Icon(Icons.music_note, color: Colors.white70)
                     : null,
               ),
@@ -341,45 +358,33 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(connected ? (name ?? 'Usuario Spotify') : 'Música · Spotify',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 20,
-                      )),
-                  const SizedBox(height: 4),
+                children: const [
                   Text(
-                    connected ? (email.isEmpty ? 'Conectado' : email)
-                        : 'Conecta para personalizar tu experiencia',
+                    'Música',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 20,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Integración con Spotify — Próximamente',
+                    style: TextStyle(
+                      color: Colors.white70,
                       fontSize: 13,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            if (connected)
-              OutlinedButton.icon(
-                onPressed: _disconnect,
-                icon: const Icon(Icons.link_off),
-                label: const Text('Desconectar'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white24),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _spotifyConnectCard(bool connected) {
+  Widget _spotifyConnectCard() {
     return Container(
       decoration: _glassDeco(),
       padding: const EdgeInsets.all(16),
@@ -390,50 +395,33 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
             children: [
               _spotifyIconBox(),
               const SizedBox(width: 12),
-              Expanded(
+              const Expanded(
                 child: Text(
-                  connected
-                      ? 'Spotify conectado. Tus gustos mejorarán las recomendaciones.'
-                      : 'Conecta tu Spotify para mejorar tus recomendaciones y matches.',
-                  style: TextStyle(color: Colors.white.withOpacity(.92)),
+                  'Integración con Spotify — Próximamente',
+                  style: TextStyle(color: Colors.white70),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          if (!connected)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _loading ? null : _connect,
-                icon: const Icon(Icons.link, size: 20),
-                label: const Text(
-                  'Conectar con Spotify',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: spotifyGreen,
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
+          // Botón deshabilitado con etiqueta "Próximamente"
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: null, // 👈 deshabilitado
+              icon: const Icon(Icons.lock_clock, size: 20),
+              label: const Text(
+                'Conectar con Spotify — Próximamente',
+                style: TextStyle(fontWeight: FontWeight.w700),
               ),
-            )
-          else
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _loading ? null : _disconnect,
-                icon: const Icon(Icons.link_off),
-                label: const Text('Desconectar Spotify'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white24),
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: spotifyGreen.withOpacity(0.6),
+                foregroundColor: Colors.black,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
             ),
+          ),
         ],
       ),
     );
@@ -469,13 +457,11 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: gold, width: 1.4),
       ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Colors.redAccent),
+      errorBorder: const OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.redAccent),
       ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Colors.redAccent),
+      focusedErrorBorder: const OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.redAccent),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     );
@@ -523,7 +509,8 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
 
   @override
   Widget build(BuildContext context) {
-    final connected = _me != null;
+    // Forzamos experiencia "deshabilitada"
+    const bool forceDisabled = true;
 
     return Scaffold(
       backgroundColor: darkBg,
@@ -535,9 +522,9 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
       body: Stack(
         children: [
           // Degradado de fondo
-          Positioned.fill(
+          const Positioned.fill(
             child: DecoratedBox(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF0E0F14), Color(0xFF0B0B0E)],
                   begin: Alignment.topCenter,
@@ -561,9 +548,9 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _header(connected),
+                    _header(),
                     const SizedBox(height: 16),
-                    _spotifyConnectCard(connected),
+                    _spotifyConnectCard(),
                     const SizedBox(height: 16),
 
                     // Formulario
@@ -585,9 +572,7 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              connected
-                                  ? 'Usaremos tus gustos y tu perfil de Spotify para afinar recomendaciones.'
-                                  : 'Puedes completar tus gustos ahora y conectar Spotify cuando quieras.',
+                              'Añade tus gustos ahora.',
                               style: TextStyle(color: Colors.white.withOpacity(.78)),
                             ),
                             const SizedBox(height: 18),
@@ -663,18 +648,13 @@ class _MusicSuperInterestScreenState extends State<MusicSuperInterestScreen>
                       decoration: _glassDeco(),
                       padding: const EdgeInsets.all(16),
                       child: Row(
-                        children: [
-                          Icon(
-                            connected ? Icons.verified : Icons.info_outline,
-                            color: connected ? Colors.greenAccent : Colors.white70,
-                          ),
-                          const SizedBox(width: 10),
+                        children: const [
+                          Icon(Icons.lock_clock, color: Colors.white70),
+                          SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              connected
-                                  ? 'Perfecto: tu cuenta de Spotify está conectada.'
-                                  : 'Tip: conectar Spotify nos permite proponerte planes y matches más afines.',
-                              style: TextStyle(color: Colors.white.withOpacity(.88)),
+                              'Spotify — Próximamente',
+                              style: TextStyle(color: Colors.white70),
                             ),
                           ),
                         ],

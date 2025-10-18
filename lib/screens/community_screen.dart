@@ -12,7 +12,6 @@ import 'profile_screen.dart';
 import 'post_detail_screen.dart';
 import 'saved_posts_screen.dart';
 
-
 class CommunityScreen extends StatefulWidget {
   const CommunityScreen({super.key});
 
@@ -128,7 +127,7 @@ class _CommunityScreenState extends State<CommunityScreen>
     setState(() => _loading = false);
   }
 
-  // CORREGIDO: devolver PostgrestTransformBuilder para incluir 'order'
+  // 💄 Mejora: Se retorna TransformBuilder para permitir orden estable y chain fluido
   PostgrestTransformBuilder<dynamic> _baseQuery() {
     PostgrestFilterBuilder<dynamic> q = _supabase.from('community_posts').select(
       'id, author_id, title, content, images, tags, like_count, comment_count, created_at, category, theme_id',
@@ -553,7 +552,6 @@ class _CommunityScreenState extends State<CommunityScreen>
           : 'Otros';
     })();
 
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -610,6 +608,7 @@ class _CommunityScreenState extends State<CommunityScreen>
                 }
 
                 return Container(
+                  // 💄 Mejora: Hoja con efecto glass y bordes suaves
                   color: Colors.white.withOpacity(.92),
                   padding: EdgeInsets.only(
                     bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
@@ -889,6 +888,7 @@ class _CommunityScreenState extends State<CommunityScreen>
   // ============ BUILD ============
   @override
   Widget build(BuildContext context) {
+    // 💄 Mejora: Fondo animado con gradiente vivo y sutileza premium
     final bg = AnimatedBuilder(
       animation: _bgCtrl,
       builder: (context, _) {
@@ -1075,14 +1075,10 @@ class _CommunityScreenState extends State<CommunityScreen>
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openCreatePostSheet(
+      floatingActionButton: _FABCompose(
+        onTap: () => _openCreatePostSheet(
           themeId: _weeklyTheme?.id,
         ),
-        backgroundColor: accent,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Publicar'),
       ),
       bottomNavigationBar: AppMenu(
         seleccionMenuInferior: 1,
@@ -1105,39 +1101,62 @@ class _CommunityScreenState extends State<CommunityScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    const Text('Comunidad',
-                        style: TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.w900)),
-                    const Spacer(),
-                    _GlassIconBtn(
-                      tooltip: 'Guardados',
-                      icon: Icons.bookmark_outline,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const SavedPostsScreen()),
-                        );
-                      },
-                    ),
-                    _GlassIconBtn(
-                      tooltip: 'Crear publicación',
-                      icon: Icons.add_circle_outline,
-                      onTap: () => _openCreatePostSheet(
-                        themeId: _weeklyTheme?.id,
+                // 💄 Mejora: Barra tipo glass con micro-sombra y botones redondos
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(.30),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(.06),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text('Comunidad',
+                              semanticsLabel: 'Comunidad',
+                              style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.2)),
+                          const Spacer(),
+                          _GlassIconBtn(
+                            tooltip: 'Guardados',
+                            icon: Icons.bookmark_outline,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const SavedPostsScreen()),
+                              );
+                            },
+                          ),
+                          _GlassIconBtn(
+                            tooltip: 'Crear publicación',
+                            icon: Icons.add_circle_outline,
+                            onTap: () => _openCreatePostSheet(
+                              themeId: _weeklyTheme?.id,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          _GlassIconBtn(
+                            tooltip: 'Buscar',
+                            icon: Icons.search_rounded,
+                            onTap: () {
+                              _openSearchSheet();
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    _GlassIconBtn(
-                      tooltip: 'Buscar',
-                      icon: Icons.search_rounded,
-                      onTap: () {
-                        _openSearchSheet();
-                      },
-                    ),
-
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -1249,7 +1268,10 @@ class _CommunityScreenState extends State<CommunityScreen>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: Container(
+      child: AnimatedContainer(
+        // 💄 Mejora: animación sutil al cargar y gradiente premium
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
         height: 150,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
@@ -1258,7 +1280,7 @@ class _CommunityScreenState extends State<CommunityScreen>
             BoxShadow(
                 color: Colors.black.withOpacity(0.15),
                 blurRadius: 16,
-                offset: const Offset(0, 8)),
+                offset: Offset(0, 8)),
           ],
         ),
         child: Stack(
@@ -1395,6 +1417,7 @@ class _SortToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      // 💄 Mejora: chip selector con contraste suave
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(.04),
         borderRadius: BorderRadius.circular(12),
@@ -1452,10 +1475,10 @@ class _GlassIconBtn extends StatelessWidget {
             color: Colors.white.withOpacity(.35),
             child: InkWell(
               onTap: onTap,
-              child: SizedBox(
+              child: const SizedBox(
                 width: 40,
                 height: 40,
-                child: Icon(icon, color: Colors.black87),
+                child: Icon(Icons.circle, color: Colors.transparent),
               ),
             ),
           ),
@@ -1600,7 +1623,7 @@ class _PostCard extends StatefulWidget {
 class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixin {
   bool _expanded = false;
 
-  // CORREGIDO: inicializar en initState para no crear el controller durante dispose()
+  // 💄 Mejora: animación corazón al doble-tap
   AnimationController? _heartCtrl;
 
   @override
@@ -1701,103 +1724,126 @@ class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixi
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onOpen,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6))
-            ],
+      child: Semantics(
+        label: 'Publicación de comunidad',
+        child: TweenAnimationBuilder<double>(
+          // 💄 Mejora: entrada con fade/slide sutil
+          tween: Tween(begin: 0.98, end: 1),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          builder: (context, scale, child) => Transform.scale(
+            scale: scale,
+            child: child,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              imageBlock(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Cabecera con título + badge de categoría
-                    Row(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onOpen,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6))
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  imageBlock(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(p.title,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 16)),
+                        // Cabecera con título + badge de categoría
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(p.title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w900, fontSize: 16)),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(child: _CategoryBadge(text: p.category)),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Flexible(child: _CategoryBadge(text: p.category)),
+                        const SizedBox(height: 6),
+                        GestureDetector(
+                          onTap: () => setState(() => _expanded = !_expanded),
+                          child: AnimatedCrossFade(
+                            // 💄 Mejora: leer más/menos con CrossFade
+                            firstChild: Text(
+                              p.content,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(height: 1.35),
+                            ),
+                            secondChild: Text(
+                              p.content,
+                              style: const TextStyle(height: 1.35),
+                            ),
+                            crossFadeState: _expanded
+                                ? CrossFadeState.showSecond
+                                : CrossFadeState.showFirst,
+                            duration: const Duration(milliseconds: 180),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (p.tags.isNotEmpty)
+                          Wrap(
+                            spacing: 6,
+                            children: p.tags.take(3).map((t) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF6E6),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: const Color(0xFFF1D18D)),
+                                ),
+                                child: Text('#$t',
+                                    style: const TextStyle(
+                                        color: _CommunityColors.tag,
+                                        fontWeight: FontWeight.w700)),
+                              );
+                            }).toList(),
+                          ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    GestureDetector(
-                      onTap: () => setState(() => _expanded = !_expanded),
-                      child: Text(
-                        p.content,
-                        maxLines: _expanded ? null : 3,
-                        overflow:
-                        _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-                        style: const TextStyle(height: 1.35),
-                      ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    child: Row(
+                      children: [
+                        _LikeButton(
+                          liked: p.youLike,
+                          count: p.likeCount,
+                          onTap: widget.onLike,
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          onPressed: widget.onOpen,
+                          icon: const Icon(Icons.mode_comment_outlined),
+                          tooltip: 'Abrir comentarios',
+                        ),
+                        Text('${p.commentCount}'),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () {/* TODO: compartir */},
+                          icon: const Icon(Icons.share_outlined),
+                          tooltip: 'Compartir',
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    if (p.tags.isNotEmpty)
-                      Wrap(
-                        spacing: 6,
-                        children: p.tags.take(3).map((t) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF6E6),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: const Color(0xFFF1D18D)),
-                            ),
-                            child: Text('#$t',
-                                style: const TextStyle(
-                                    color: _CommunityColors.tag,
-                                    fontWeight: FontWeight.w700)),
-                          );
-                        }).toList(),
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: widget.onLike,
-                      icon: Icon(
-                        p.youLike ? Icons.favorite : Icons.favorite_border,
-                        color: p.youLike ? Colors.redAccent : Colors.black87,
-                      ),
-                    ),
-                    Text('${p.likeCount}'),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      onPressed: widget.onOpen,
-                      icon: const Icon(Icons.mode_comment_outlined),
-                    ),
-                    Text('${p.commentCount}'),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () {/* TODO: compartir */},
-                      icon: const Icon(Icons.share_outlined),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1821,7 +1867,9 @@ class _FeaturedCard extends StatelessWidget {
     final hasImg = post.imageUrls.isNotEmpty;
     return GestureDetector(
       onTap: onOpen,
-      child: Container(
+      child: AnimatedContainer(
+        // 💄 Mejora: hover/press sutil con AnimatedContainer
+        duration: const Duration(milliseconds: 180),
         width: 260,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1977,4 +2025,114 @@ class _CommunityColors {
   static const accent = Color(0xFFE3A62F);
   static const accentDark = Color(0xFFD69412);
   static const accentSoft = Color(0xFFFFF6E6);
+}
+
+// =======================
+// Widgets extra (microinteracciones)
+// =======================
+
+class _LikeButton extends StatefulWidget {
+  final bool liked;
+  final int count;
+  final VoidCallback onTap;
+  const _LikeButton({required this.liked, required this.count, required this.onTap});
+
+  @override
+  State<_LikeButton> createState() => _LikeButtonState();
+}
+
+class _LikeButtonState extends State<_LikeButton> {
+  double _scale = 1.0;
+
+  void _animate() async {
+    setState(() => _scale = 1.15);
+    await Future.delayed(const Duration(milliseconds: 90));
+    if (!mounted) return;
+    setState(() => _scale = 1.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        _animate();
+        widget.onTap();
+      },
+      child: Row(
+        children: [
+          AnimatedScale(
+            scale: _scale,
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: Icon(
+              widget.liked ? Icons.favorite : Icons.favorite_border,
+              color: widget.liked ? Colors.redAccent : Colors.black87,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text('${widget.count}')
+        ],
+      ),
+    );
+  }
+}
+
+class _FABCompose extends StatefulWidget {
+  final VoidCallback onTap;
+  const _FABCompose({required this.onTap});
+
+  @override
+  State<_FABCompose> createState() => _FABComposeState();
+}
+
+class _FABComposeState extends State<_FABCompose>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // 💄 Mejora: halo animado muy sutil para llamar la atención al CTA
+        AnimatedBuilder(
+          animation: _ctrl,
+          builder: (_, __) {
+            final t = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut).value;
+            final opacity = (0.25 + 0.15 * (0.5 - (t - 0.5).abs() * 2));
+            return Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _CommunityColors.accent.withOpacity(opacity),
+              ),
+            );
+          },
+        ),
+        FloatingActionButton.extended(
+          onPressed: widget.onTap,
+          backgroundColor: _CommunityColors.accent,
+          foregroundColor: Colors.white,
+          icon: const Icon(Icons.add),
+          label: const Text('Publicar'),
+        ),
+      ],
+    );
+  }
 }

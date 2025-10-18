@@ -1,4 +1,6 @@
 // lib/screens/messages_screen.dart
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -48,14 +50,13 @@ class _MessagesScreenState extends State<MessagesScreen> {
   RealtimeChannel? _groupMsgsRt;
 
   void _openAddFriendModalWithPrefill(String code) {
-    // Abre el modal de “Añadir amigo” con el código precargado en la pestaña 2
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final controller = TextEditingController(text: code);
-        int tabIndex = 1; // 0 = Mi código, 1 = Introducir código
+        int tabIndex = 1;
 
         return StatefulBuilder(
           builder: (ctx, setModal) {
@@ -73,7 +74,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Pestañas estilo "segmented"
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
@@ -98,8 +98,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         ),
                         const SizedBox(height: 14),
 
-                        // Contenido de cada pestaña
-                        if (tabIndex == 0) _MyCodePanel(), // tu panel “Mi código”
+                        if (tabIndex == 0) _MyCodePanel(),
                         if (tabIndex == 1)
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,7 +173,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
   Future<String> _ensureMyFriendCode() async {
     final uid = _sb.auth.currentUser!.id;
 
-    // 1) Buscar si ya existe
     final existing = await _sb
         .from('friend_codes')
         .select('code')
@@ -185,11 +183,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
       return existing['code'] as String;
     }
 
-    // 2) Generar código corto bonito (7-8 chars)
     String _generate() {
       final t = DateTime.now().millisecondsSinceEpoch;
       final base = (uid + t.toString()).hashCode.abs();
-      final alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/1/O/I
+      final alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       final len = 8;
       var n = base;
       final b = StringBuffer();
@@ -202,7 +199,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
     String code = _generate();
 
-    // 3) Guardar con reintentos
     for (int i = 0; i < 3; i++) {
       try {
         await _sb.from('friend_codes').upsert(
@@ -248,7 +244,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
       return;
     }
 
-    // Evitar duplicadas
     final existing = await _sb
         .from('solicitudes_amigo')
         .select('id, estado, emisor_id, receptor_id')
@@ -305,7 +300,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
     _loadAll();
     _searchCtrl.addListener(_onSearchChanged);
 
-    // Realtime
     _subscribeRealtime();
     _subscribeGroupRealtime();
   }
@@ -349,7 +343,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
         final idx = _allChats.indexWhere((c) => c['chatId'] == chatId);
         if (idx >= 0) {
-          final isUnread = (emisor != me); // si lo envió otro, es no leído
+          final isUnread = (emisor != me);
           final updated = Map<String, dynamic>.from(_allChats[idx]);
           updated['lastMsg'] = {
             'id': row['id'],
@@ -394,7 +388,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       schema: 'public',
       table: 'grupo_mensajes',
       callback: (payload) async {
-        await _loadGroups(); // simple; refrescamos previews
+        await _loadGroups();
       },
     )
         .subscribe();
@@ -436,7 +430,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
-  // Reimplementación simple de myIncoming()
   Future<List<Map<String, dynamic>>> _myIncoming() async {
     final me = _sb.auth.currentUser!.id;
     final rows = await _sb
@@ -475,7 +468,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
           .order('created_at', referencedTable: 'mensajes', ascending: false)
           .limit(1, referencedTable: 'mensajes');
 
-      // Avatares
       final ids = <String>{
         for (final r in rows as List)
           ...[(r['usuario1'] as Map)['id'], (r['usuario2'] as Map)['id']]
@@ -498,7 +490,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
         }
       }
 
-      // Lista de chats
       final chats = <Map<String, dynamic>>[];
       for (final r in rows as List) {
         final u1 = r['usuario1'] as Map<String, dynamic>;
@@ -556,7 +547,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
-  // Iniciar chat manualmente (seguimos igual)
   Future<List<Map<String, dynamic>>> _fetchFriends() async {
     final me = _sb.auth.currentUser!.id;
 
@@ -667,7 +657,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
-  // Borrado chat (igual que antes)
   void _openChatMenu(Map<String, dynamic> chat) {
     final partner = chat['partner'] as Map<String, dynamic>;
     showModalBottomSheet(
@@ -845,7 +834,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        // FAB “Iniciar chat”
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _openStartChatSheet,
           backgroundColor: accent,
@@ -871,7 +859,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
           child: SafeArea(
             child: Column(
               children: [
-                // AppBar custom con buscador + botones
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
@@ -931,7 +918,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   ),
                 ),
 
-                // Tabs
                 TabBar(
                   indicatorColor: accent,
                   labelColor: accent,
@@ -946,7 +932,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      // ====== MENSAJES ======
                       RefreshIndicator(
                         onRefresh: () async {
                           await _loadAll();
@@ -955,10 +940,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                           children: [
-                            // CTA Crear grupo
                             _CreateGroupCTA(onTap: _openCreateGroupFlow),
 
-                            // Sección de grupos
                             if (_loadingGroups)
                               const Padding(
                                 padding: EdgeInsets.all(16),
@@ -984,7 +967,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
                               child: Text('Chats', style: TextStyle(fontWeight: FontWeight.w800)),
                             ),
 
-                            // Lista de chats 1:1
                             if (_loadingChats)
                               const Padding(
                                 padding: EdgeInsets.all(16),
@@ -1076,7 +1058,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         ),
                       ),
 
-                      // ====== SOLICITUDES ======
                       _RequestsList(onChanged: _refreshPendingCount, fetch: _myIncoming, sb: _sb),
                     ],
                   ),
@@ -1135,8 +1116,86 @@ class _GroupsSection extends StatelessWidget {
   const _GroupsSection({required this.groups, required this.onTap});
 
   String _fmtTime(String iso) {
-    final dt = DateTime.parse(iso).toLocal();
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '';
     return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  String _fmtDur(int s) {
+    final m = (s ~/ 60).toString().padLeft(2, '0');
+    final ss = (s % 60).toString().padLeft(2, '0');
+    return '$m:$ss';
+  }
+
+  /// INTELIGENCIA: detecta el tipo cuando el backend no mandó `tipo`
+  String _detectType(String? hinted, dynamic contenido) {
+    if (hinted != null && hinted.isNotEmpty && hinted != 'texto') return hinted;
+
+    Map<String, dynamic>? json;
+    if (contenido is Map) {
+      json = Map<String, dynamic>.from(contenido as Map);
+    } else if (contenido is String) {
+      try {
+        final j = jsonDecode(contenido);
+        if (j is Map<String, dynamic>) json = j;
+      } catch (_) {/* no JSON */}
+    }
+
+    if (json != null) {
+      if (json.containsKey('question')) return 'encuesta';
+      if (json.containsKey('emoji')) return 'reaction';
+      if (json.containsKey('vote') || json.containsKey('option') || json.containsKey('poll_id')) return 'vote';
+      if (json.containsKey('dur')) return 'audio';
+      if (json.containsKey('url')) return 'imagen';
+      if (json.containsKey('text')) return 'texto';
+    }
+    return hinted ?? 'texto';
+  }
+
+  String _previewFromContent(String tipo, dynamic contenido) {
+    Map<String, dynamic>? json;
+    if (contenido is Map) {
+      json = Map<String, dynamic>.from(contenido as Map);
+    } else if (contenido is String) {
+      try {
+        final j = jsonDecode(contenido);
+        if (j is Map<String, dynamic>) json = j;
+      } catch (_) {/*texto plano*/}
+    }
+
+    switch (tipo) {
+      case 'texto':
+        if (contenido is String) return contenido;
+        return json?['text'] as String? ?? 'mensaje';
+      case 'reply':
+        final txt = json?['text'] as String? ?? '';
+        return txt.isEmpty ? '↩️ Respuesta' : '↩️ $txt';
+      case 'imagen':
+        return '📷 Imagen';
+      case 'audio':
+        final dur = (json?['dur'] is int) ? json!['dur'] as int : 0;
+        return dur > 0 ? '🎤 Nota de voz (${_fmtDur(dur)})' : '🎤 Nota de voz';
+      case 'encuesta':
+        final q = json?['question'] as String? ?? 'Encuesta';
+        return '🗳️ $q';
+      case 'reaction':
+        final emoji = json?['emoji'] as String? ?? '👍';
+        return 'Reaccionó con $emoji';
+      case 'vote':
+        return '🗳️ Ha votado en una encuesta';
+      default:
+      // Si llega un JSON pero no cuadró, evita mostrarlo crudo
+        if (json != null) return 'Mensaje';
+        return contenido is String ? contenido : 'Mensaje';
+    }
+  }
+
+  String _groupSubtitle(Map<String, dynamic>? last) {
+    if (last == null) return 'Nuevo grupo – ¡Diles hola!';
+    final hinted = (last['tipo'] as String?);
+    final contenido = last['contenido'];
+    final tipo = _detectType(hinted, contenido);
+    return _previewFromContent(tipo, contenido);
   }
 
   @override
@@ -1152,7 +1211,7 @@ class _GroupsSection extends StatelessWidget {
         ),
         ...groups.map((g) {
           final last = g['lastMsg'] as Map<String, dynamic>?;
-          final time = last != null ? _fmtTime(last['created_at']) : '';
+          final time = last != null ? _fmtTime(last['created_at'] ?? '') : '';
           final unread = (g['unread'] as bool?) ?? false;
           return GestureDetector(
             onTap: () => onTap(g),
@@ -1188,7 +1247,7 @@ class _GroupsSection extends StatelessWidget {
                 ),
                 title: Text(g['nombre'] as String, style: const TextStyle(fontWeight: FontWeight.w900)),
                 subtitle: Text(
-                  last != null ? (last['contenido'] as String) : 'Nuevo grupo – ¡Diles hola!',
+                  _groupSubtitle(last),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1403,7 +1462,7 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
       }
       await widget.sendRequestTo(uid);
       if (!mounted) return;
-      Navigator.pop(context); // cerrar modal al enviar
+      Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1445,7 +1504,6 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
               const Text('Agregar amigo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
 
-              // pestañas
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Container(
@@ -1488,7 +1546,6 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
                 child: TabBarView(
                   controller: _tabCtrl,
                   children: [
-                    // ---- MI CODIGO ----
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                       child: _loadingMyCode
@@ -1563,7 +1620,6 @@ class _AddFriendSheetState extends State<_AddFriendSheet> with SingleTickerProvi
                       ),
                     ),
 
-                    // ---- INTRODUCIR CODIGO ----
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                       child: Column(
@@ -1669,8 +1725,8 @@ class _RequestsListState extends State<_RequestsList> {
         }
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() {}); // vuelve a disparar FutureBuilder
-            await _notifyParent(); // actualiza badge
+            setState(() {});
+            await _notifyParent();
           },
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),

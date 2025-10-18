@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:chillroom/screens/community_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:app_links/app_links.dart';
@@ -118,7 +119,7 @@ Future<void> main() async {
   // Notificaciones locales (permiso iOS/Android 13+, tz y handler de taps)
   await LocalNotificationsService.instance.init(navigatorKey: navigatorKey);
 
-  runApp(const MyApp());
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatefulWidget {

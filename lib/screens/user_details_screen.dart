@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -14,7 +13,6 @@ import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'chat_detail_screen.dart';
 import 'piso_details_screen.dart';
-
 
 // NUEVO
 import '../widgets/super_interest_theme.dart';
@@ -145,7 +143,9 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 )
                     : ((pendingOut || _justRequested) || pendingIn)
                     ? _DisabledCTA(
-                  text: pendingIn ? 'Solicitud pendiente' : 'Solicitud enviada',
+                  text: pendingIn
+                      ? 'Solicitud pendiente'
+                      : 'Solicitud enviada',
                 )
                     : GestureDetector(
                   onTap: () async {
@@ -266,7 +266,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Sin acciones'),
-        content: const Text('Te has quedado sin acciones, ve un anuncio o compra más'),
+        content:
+        const Text('Te has quedado sin acciones, ve un anuncio o compra más'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
         ],
@@ -315,13 +316,17 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       PageRouteBuilder(
         opaque: true,
         barrierColor: Colors.black,
-        transitionDuration: const Duration(milliseconds: 220),
-        reverseTransitionDuration: const Duration(milliseconds: 200),
+        transitionDuration: const Duration(milliseconds: 260), // 💄 Mejora: +fluida
+        reverseTransitionDuration: const Duration(milliseconds: 220),
         pageBuilder: (_, __, ___) => _FullscreenGallery(
-          urls: urls,
+          urls: urls.map(_resolvePhoto).toList(),
           initialIndex: initialIndex,
           heroPrefix: heroPrefix,
         ),
+        transitionsBuilder: (c, a, s, child) {
+          final curved = CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
+          return FadeTransition(opacity: curved, child: child);
+        },
       ),
     );
   }
@@ -507,6 +512,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final myId = _sb.auth.currentUser!.id;
+    // 💄 Hero contract: el listado debe envolver la foto principal con Hero(tag: 'ud_<userId>-0')
     final heroPrefix = 'ud_${widget.userId}';
 
     return Scaffold(
@@ -659,7 +665,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
 
               CustomScrollView(
                 slivers: [
-                  // HEADER
+                  // HEADER con Hero (se gestiona dentro de SuperInterestHeroHeader)
                   SliverAppBar(
                     pinned: true,
                     expandedHeight: 360,
@@ -689,7 +695,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                         photos: photos,
                         pageController: _pageCtrl,
                         currentIndex: _currentPhoto,
-                        heroPrefix: heroPrefix,
+                        heroPrefix: heroPrefix, // 💄 Clave para Hero compartido
                         theme: theme,
                         onDotTap: (i) => _pageCtrl.animateToPage(
                           i,
@@ -724,7 +730,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                     ),
                                   ),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    padding:
+                                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                     decoration: BoxDecoration(
                                       color: theme.primary.withOpacity(.12),
                                       borderRadius: BorderRadius.circular(12),
@@ -839,8 +846,8 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                 if (fbCompetitions.isNotEmpty) ...[
                                   const SizedBox(height: 14),
                                   const Text('Competiciones favoritas',
-                                      style:
-                                      TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                      style: TextStyle(
+                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 8,
@@ -905,36 +912,34 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                 const SizedBox(height: 12),
                                 if (gmPlatforms.isNotEmpty) ...[
                                   const Text('Plataformas',
-                                      style: TextStyle(
-                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                      style:
+                                      TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 8,
-                                    children: gmPlatforms
-                                        .map((p) => _tagChip(p, color: theme.primary))
-                                        .toList(),
+                                    children:
+                                    gmPlatforms.map((p) => _tagChip(p, color: theme.primary)).toList(),
                                   ),
                                   const SizedBox(height: 12),
                                 ],
                                 if (gmGenres.isNotEmpty) ...[
                                   const Text('Géneros',
-                                      style: TextStyle(
-                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                      style:
+                                      TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 8,
-                                    children: gmGenres
-                                        .map((g) => _tagChip(g, color: theme.primary))
-                                        .toList(),
+                                    children:
+                                    gmGenres.map((g) => _tagChip(g, color: theme.primary)).toList(),
                                   ),
                                   const SizedBox(height: 12),
                                 ],
                                 if (gmFavGames.length > 1) ...[
                                   const Text('Más juegos favoritos',
-                                      style: TextStyle(
-                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                      style:
+                                      TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 8,
@@ -948,15 +953,14 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                                 ],
                                 if (gmTags.isNotEmpty) ...[
                                   const Text('Detalles',
-                                      style: TextStyle(
-                                          fontSize: 14.5, fontWeight: FontWeight.w800)),
+                                      style:
+                                      TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 8,
-                                    children: gmTags
-                                        .map((t) => _tagChip(t, color: theme.primary))
-                                        .toList(),
+                                    children:
+                                    gmTags.map((t) => _tagChip(t, color: theme.primary)).toList(),
                                   ),
                                 ],
                               ],

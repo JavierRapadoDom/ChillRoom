@@ -50,6 +50,12 @@ dependencies:
   record: ^6.1.2
   path_provider: ^2.1.5
   audioplayers: ^6.5.1
+  flame: ^1.32.0
+  flame_audio: ^2.11.10
+  equatable: ^2.0.7
+  flutter_riverpod: ^3.0.3
+  emoji_picker_flutter: ^4.3.0
+  shared_preferences: ^2.5.3
 
 
 dev_dependencies:
@@ -105,6 +111,11 @@ flutter:
 
     - assets/social/
     - assets/marketplaces/
+
+    - assets/game/chilli_bird/
+    - assets/audio/sfx/score.wav
+    - assets/audio/sfx/hit.wav
+    - assets/audio/sfx/flap.wav
 
 
   # An image asset can refer to one or more resolution-specific "variants", see
